@@ -26,11 +26,11 @@ describe("ProofFlow", () => {
     expect(screen.getByRole("dialog", { name: /choose your installer/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /windows/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest/download/proof-helper_0.1.0_windows_x64.zip",
     );
     expect(screen.getByRole("link", { name: /macos/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest/download/proof-helper_0.1.0_macos_universal.zip",
     );
     expect(screen.getByRole("link", { name: /linux/i })).toHaveAttribute(
       "href",

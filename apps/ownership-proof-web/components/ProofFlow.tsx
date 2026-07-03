@@ -686,22 +686,24 @@ function normalizeLocalURL(value: string) {
 
 const releaseRepo = "https://github.com/Anastasia-Labs/proof-tool-release";
 const releasePage = `${releaseRepo}/releases/latest`;
+const windowsZipDownload = `${releaseRepo}/releases/latest/download/proof-helper_0.1.0_windows_x64.zip`;
+const macZipDownload = `${releaseRepo}/releases/latest/download/proof-helper_0.1.0_macos_universal.zip`;
 const linuxDebDownload = `${releaseRepo}/releases/latest/download/proof-helper_0.1.0_amd64.deb`;
 
 const downloadChoices = [
   {
     platform: "windows",
     label: "Windows",
-    description: "For Edge, Chrome, or Firefox on Windows.",
-    action: "Open release",
-    href: releasePage,
+    description: "Downloads the Windows helper package.",
+    action: "Download .zip",
+    href: windowsZipDownload,
   },
   {
     platform: "mac",
     label: "macOS",
-    description: "For Safari, Chrome, or Firefox on macOS.",
-    action: "Open release",
-    href: releasePage,
+    description: "Downloads the universal macOS helper package.",
+    action: "Download .zip",
+    href: macZipDownload,
   },
   {
     platform: "linux",
