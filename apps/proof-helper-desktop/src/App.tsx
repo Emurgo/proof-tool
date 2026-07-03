@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  CircleStop,
   ExternalLink,
   FolderKey,
   Loader2,
@@ -9,7 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
-import type { DesktopApi, HelperStartup, KeyBundleStatus } from "./desktopApi";
+import type { DesktopApi, HelperStartup, KeyBundleProgress, KeyBundleStatus } from "./desktopApi";
 import { tauriDesktopApi } from "./desktopApi";
 
 type AppProps = {
@@ -25,16 +26,40 @@ export function App({ api = tauriDesktopApi }: AppProps) {
   const [startup, setStartup] = useState<HelperStartup | null>(null);
   const [siteUrl, setSiteUrl] = useState(defaultSiteURL);
   const [sidecarPath, setSidecarPath] = useState(defaultSidecarPath);
+  const [bundleSourceDir, setBundleSourceDir] = useState("");
+  const [trustedManifestKey, setTrustedManifestKey] = useState("");
+  const [signatureKeyId, setSignatureKeyId] = useState("proof-helper-release-v1");
   const [fixture, setFixture] = useState(false);
   const [devCreateKeys, setDevCreateKeys] = useState(false);
-  const [busy, setBusy] = useState<"status" | "start" | "stop" | "delete" | null>("status");
+  const [busy, setBusy] = useState<"status" | "start" | "stop" | "install" | "delete" | null>("status");
   const [message, setMessage] = useState("");
+  const [installProgress, setInstallProgress] = useState<KeyBundleProgress | null>(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
 
   const keyTone = useMemo(() => toneForKey(keyStatus), [keyStatus]);
   const helperTone = helperRunning ? "ok" : busy === "start" ? "warn" : "idle";
 
   useEffect(() => {
     let active = true;
+    let unlisten: (() => void) | undefined;
+    void api
+      .onKeyBundleProgress((progress) => {
+        if (active) {
+          setInstallProgress(progress);
+        }
+      })
+      .then((nextUnlisten) => {
+        if (active) {
+          unlisten = nextUnlisten;
+        } else {
+          nextUnlisten();
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setMessage(messageFor(error));
+        }
+      });
     void refresh();
     void api.helperProcessStatus().then((status) => {
       if (active) {
@@ -43,6 +68,7 @@ export function App({ api = tauriDesktopApi }: AppProps) {
     });
     return () => {
       active = false;
+      unlisten?.();
     };
 
     async function refresh() {
@@ -115,6 +141,7 @@ export function App({ api = tauriDesktopApi }: AppProps) {
   const deleteCache = async () => {
     setBusy("delete");
     setMessage("");
+    setInstallProgress(null);
     try {
       const next = await api.deleteKeyCache();
       setKeyStatus(next);
@@ -122,6 +149,38 @@ export function App({ api = tauriDesktopApi }: AppProps) {
       setMessage(messageFor(error));
     } finally {
       setBusy(null);
+    }
+  };
+
+  const installBundle = async () => {
+    setBusy("install");
+    setMessage("");
+    setCancelRequested(false);
+    setInstallProgress(null);
+    try {
+      const next = await api.activateKeyBundle({
+        sourceDir: bundleSourceDir,
+        trustedManifestPublicKeyHex: trustedManifestKey,
+        expectedSignatureKeyId: signatureKeyId,
+        minFreeBytes: 1,
+      });
+      setKeyStatus(next);
+      setMessage("Key bundle installed and verified.");
+    } catch (error) {
+      setMessage(messageFor(error));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cancelInstall = async () => {
+    setCancelRequested(true);
+    setMessage("");
+    try {
+      await api.cancelKeyBundleActivation();
+    } catch (error) {
+      setMessage(messageFor(error));
+      setCancelRequested(false);
     }
   };
 
@@ -171,12 +230,59 @@ export function App({ api = tauriDesktopApi }: AppProps) {
               <Detail label="Circuit" value={keyStatus?.circuit_id ?? "Unavailable"} />
               <Detail label="App data" value={keyStatus?.app_data_dir ?? "Checking"} />
             </dl>
+            <label className="field">
+              <span>Bundle source</span>
+              <input
+                value={bundleSourceDir}
+                onChange={(event) => setBundleSourceDir(event.target.value)}
+                placeholder="Directory with manifest.json and key files"
+                spellCheck={false}
+              />
+            </label>
+            <label className="field">
+              <span>Manifest public key</span>
+              <input
+                value={trustedManifestKey}
+                onChange={(event) => setTrustedManifestKey(event.target.value)}
+                placeholder="64 hex characters"
+                spellCheck={false}
+              />
+            </label>
+            <label className="field">
+              <span>Signature key id</span>
+              <input
+                value={signatureKeyId}
+                onChange={(event) => setSignatureKeyId(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
             <div className="button-row">
-              <button className="secondary-button" type="button" onClick={deleteCache} disabled={busy === "delete"}>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={installBundle}
+                disabled={busy === "install" || bundleSourceDir.trim() === "" || trustedManifestKey.trim() === ""}
+              >
+                {busy === "install" ? <Loader2 className="spin" size={17} /> : <FolderKey size={17} />}
+                Install key
+              </button>
+              {busy === "install" ? (
+                <button className="secondary-button" type="button" onClick={cancelInstall} disabled={cancelRequested}>
+                  {cancelRequested ? <Loader2 className="spin" size={17} /> : <CircleStop size={17} />}
+                  Cancel install
+                </button>
+              ) : null}
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={deleteCache}
+                disabled={busy === "delete" || busy === "install"}
+              >
                 {busy === "delete" ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
                 Remove cache
               </button>
             </div>
+            {busy === "install" || installProgress ? <InstallProgressView progress={installProgress} /> : null}
           </section>
 
           <section className="work-section" aria-labelledby="helper-heading">
@@ -243,6 +349,19 @@ export function App({ api = tauriDesktopApi }: AppProps) {
         </section>
       </section>
     </main>
+  );
+}
+
+function InstallProgressView({ progress }: { progress: KeyBundleProgress | null }) {
+  const percent = progressPercent(progress);
+  return (
+    <div className="progress-block" aria-label="Key bundle activation progress">
+      <div>
+        <span>{progress ? `Staging ${progress.file_name}` : "Preparing key bundle"}</span>
+        <strong>{percent === null ? "Starting" : `${percent}%`}</strong>
+      </div>
+      <progress value={percent ?? 0} max={100} />
+    </div>
   );
 }
 
@@ -327,4 +446,11 @@ function messageFor(error: unknown) {
     return error.message;
   }
   return String(error);
+}
+
+function progressPercent(progress: KeyBundleProgress | null) {
+  if (!progress || progress.total_bytes <= 0) {
+    return null;
+  }
+  return Math.min(100, Math.floor((progress.copied_bytes / progress.total_bytes) * 100));
 }

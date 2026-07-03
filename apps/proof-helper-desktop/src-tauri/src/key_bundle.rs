@@ -1,9 +1,16 @@
+use key_bundle_core::{self, InstallProgress, InstallRequest};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 const KEY_VERSION: &str = "ownership-v1";
+const KEY_BUNDLE_PROGRESS_EVENT: &str = "key-bundle-progress";
+
+#[derive(Default)]
+pub struct KeyBundleState {
+    cancel_activation: AtomicBool,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -19,104 +26,76 @@ pub struct KeyBundleStatus {
 }
 
 #[derive(Debug, Deserialize)]
-struct Manifest {
-    key_version: Option<String>,
-    circuit_id: Option<String>,
-    vk_hash: Option<String>,
+#[serde(rename_all = "camelCase")]
+pub struct ActivateKeyBundleRequest {
+    pub source_dir: String,
+    pub trusted_manifest_public_key_hex: String,
+    pub expected_signature_key_id: String,
+    pub min_free_bytes: Option<u64>,
 }
 
 #[tauri::command]
-pub fn key_status(app: AppHandle) -> Result<KeyBundleStatus, String> {
+pub fn key_status<R: Runtime>(app: AppHandle<R>) -> Result<KeyBundleStatus, String> {
     inspect_key_bundle(&app)
 }
 
 #[tauri::command]
-pub fn delete_key_cache(app: AppHandle) -> Result<KeyBundleStatus, String> {
+pub fn activate_key_bundle<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, KeyBundleState>,
+    request: ActivateKeyBundleRequest,
+) -> Result<KeyBundleStatus, String> {
+    state.cancel_activation.store(false, Ordering::SeqCst);
     let paths = key_cache_paths(&app)?;
-    if paths.active_dir.exists() {
-        fs::remove_dir_all(&paths.active_dir)
-            .map_err(|err| format!("delete active key cache: {err}"))?;
-    }
-    if paths.downloading_dir.exists() {
-        fs::remove_dir_all(&paths.downloading_dir)
-            .map_err(|err| format!("delete temporary key cache: {err}"))?;
-    }
+    let request = InstallRequest {
+        source_dir: PathBuf::from(request.source_dir),
+        active_dir: paths.active_dir.clone(),
+        downloading_dir: paths.downloading_dir.clone(),
+        trusted_manifest_public_key_hex: request.trusted_manifest_public_key_hex,
+        expected_signature_key_id: request.expected_signature_key_id,
+        min_free_bytes: request.min_free_bytes,
+    };
+    let install_result = key_bundle_core::install_bundle_with_progress(&request, |progress| {
+        if state.cancel_activation.load(Ordering::SeqCst) {
+            return Err("key bundle activation cancelled".to_string());
+        }
+        emit_progress(&app, &progress)
+    });
+    state.cancel_activation.store(false, Ordering::SeqCst);
+    install_result?;
     inspect_key_bundle(&app)
 }
 
-pub fn active_key_dir(app: &AppHandle) -> Result<PathBuf, String> {
+#[tauri::command]
+pub fn delete_key_cache<R: Runtime>(app: AppHandle<R>) -> Result<KeyBundleStatus, String> {
+    let paths = key_cache_paths(&app)?;
+    key_bundle_core::delete_cache(&paths.active_dir, &paths.downloading_dir)?;
+    inspect_key_bundle(&app)
+}
+
+#[tauri::command]
+pub fn cancel_key_bundle_activation(state: State<'_, KeyBundleState>) -> Result<(), String> {
+    state.cancel_activation.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+pub fn active_key_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     Ok(key_cache_paths(app)?.active_dir)
 }
 
-pub fn inspect_key_bundle(app: &AppHandle) -> Result<KeyBundleStatus, String> {
+pub fn inspect_key_bundle<R: Runtime>(app: &AppHandle<R>) -> Result<KeyBundleStatus, String> {
     let paths = key_cache_paths(app)?;
-    if !paths.active_dir.exists() {
-        return Ok(status(
-            &paths,
-            "missing",
-            false,
-            None,
-            Some("key bundle is not installed"),
-        ));
-    }
-
-    let manifest_path = paths.active_dir.join("manifest.json");
-    let pk_path = paths.active_dir.join("ownership.pk");
-    let vk_path = paths.active_dir.join("ownership.vk");
-    if !manifest_path.exists() || !pk_path.exists() || !vk_path.exists() {
-        return Ok(status(
-            &paths,
-            "invalid",
-            false,
-            None,
-            Some("key bundle is incomplete"),
-        ));
-    }
-
-    let manifest_bytes = fs::read(&manifest_path).map_err(|err| format!("read manifest: {err}"))?;
-    let manifest: Manifest =
-        serde_json::from_slice(&manifest_bytes).map_err(|err| format!("parse manifest: {err}"))?;
-    if manifest.key_version.as_deref() != Some(KEY_VERSION) {
-        return Ok(status(
-            &paths,
-            "invalid",
-            false,
-            Some(manifest),
-            Some("key version is not supported"),
-        ));
-    }
-    if manifest.vk_hash.as_deref().unwrap_or_default().is_empty() {
-        return Ok(status(
-            &paths,
-            "invalid",
-            false,
-            Some(manifest),
-            Some("manifest is missing vk_hash"),
-        ));
-    }
-
-    Ok(status(&paths, "ready", true, Some(manifest), None))
-}
-
-fn status(
-    paths: &KeyCachePaths,
-    state: &str,
-    ready: bool,
-    manifest: Option<Manifest>,
-    error: Option<&str>,
-) -> KeyBundleStatus {
-    KeyBundleStatus {
-        state: state.to_string(),
-        ready,
-        key_version: manifest
-            .as_ref()
-            .and_then(|value| value.key_version.clone()),
-        vk_hash: manifest.as_ref().and_then(|value| value.vk_hash.clone()),
-        circuit_id: manifest.as_ref().and_then(|value| value.circuit_id.clone()),
+    let inspection = key_bundle_core::inspect_active_bundle(&paths.active_dir);
+    Ok(KeyBundleStatus {
+        state: inspection.state,
+        ready: inspection.ready,
+        key_version: inspection.key_version,
+        vk_hash: inspection.vk_hash,
+        circuit_id: inspection.circuit_id,
         app_data_dir: paths.app_data_dir.display().to_string(),
         active_dir: paths.active_dir.display().to_string(),
-        error: error.map(str::to_string),
-    }
+        error: inspection.error,
+    })
 }
 
 struct KeyCachePaths {
@@ -125,7 +104,7 @@ struct KeyCachePaths {
     downloading_dir: PathBuf,
 }
 
-fn key_cache_paths(app: &AppHandle) -> Result<KeyCachePaths, String> {
+fn key_cache_paths<R: Runtime>(app: &AppHandle<R>) -> Result<KeyCachePaths, String> {
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -136,4 +115,9 @@ fn key_cache_paths(app: &AppHandle) -> Result<KeyCachePaths, String> {
         active_dir: key_root.join("active"),
         downloading_dir: key_root.join("downloading.tmp"),
     })
+}
+
+fn emit_progress<R: Runtime>(app: &AppHandle<R>, progress: &InstallProgress) -> Result<(), String> {
+    app.emit(KEY_BUNDLE_PROGRESS_EVENT, progress)
+        .map_err(|err| format!("emit key bundle progress: {err}"))
 }

@@ -74,12 +74,16 @@ Build the binary:
 go build -o output/proof-tool ./cmd/proof-tool
 ```
 
+Use the published ceremony bundle as the key directory. Replace
+`output/ceremony/ownership-v1-YYYYMMDD` below with the signed bundle produced by
+`proof-tool setup-ceremony`; do not point these commands at an empty directory.
+
 Generate the golden-vector proof:
 
 ```bash
-mkdir -p output/real-proof output/real-keys
+mkdir -p output/real-proof
 ./output/proof-tool prove \
-  --keys-dir output/real-keys \
+  --keys-dir output/ceremony/ownership-v1-YYYYMMDD \
   --master-xprv c065afd2832cd8b087c4d9ab7011f481ee1e0721e78ea5dd609f3ab3f156d245d176bd8fd4ec60b4731c3918a2a72a0226c0cd119ec35b47e4d55884667f552a23f7fdcd4a10c6cd2c7393ac61d877873e248f417634aa3d812af327ffe9d620 \
   --target-credential 19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4 \
   --account 0 \
@@ -92,7 +96,7 @@ Verify the generated proof:
 
 ```bash
 ./output/proof-tool verify \
-  --keys-dir output/real-keys \
+  --keys-dir output/ceremony/ownership-v1-YYYYMMDD \
   output/real-proof/ownership-proof.json
 ```
 
@@ -100,7 +104,7 @@ Export Cardano smart-contract verifier inputs:
 
 ```bash
 ./output/proof-tool export-cardano \
-  --keys-dir output/real-keys \
+  --keys-dir output/ceremony/ownership-v1-YYYYMMDD \
   --out-dir output/cardano-proof \
   output/real-proof/ownership-proof.json
 ```
@@ -116,7 +120,7 @@ Run the real verifier API:
 ```bash
 ./output/proof-tool serve-verifier \
   --addr 127.0.0.1:18082 \
-  --keys-dir output/real-keys \
+  --keys-dir output/ceremony/ownership-v1-YYYYMMDD \
   --allowed-origin http://localhost:3002,http://127.0.0.1:3002
 ```
 
@@ -125,7 +129,7 @@ Run the real helper API:
 ```bash
 ./output/proof-tool serve-helper \
   --addr 127.0.0.1:0 \
-  --keys-dir output/real-keys \
+  --keys-dir output/ceremony/ownership-v1-YYYYMMDD \
   --site-url http://127.0.0.1:3002
 ```
 
@@ -144,7 +148,7 @@ uses the root `vercel.json`.
 - All other public requests route to the Next.js web service.
 
 The Go verifier pins the verifying key with hash
-`blake2b256:0bd2f0fd3e3f1f3a671ca9f5fa92be04771a19f5dab5d09bfdcfae8ca6ce9731`.
+`blake2b256:e896ad2b9bceac9abe80de7a4ec91a9e41a55582b9b58fe3797bc203662b7c03`.
 Production helper builds must prove with the matching published proving-key
 bundle. Do not let production helpers silently create a fresh local Groth16 key
 bundle, because those proofs will not match the hosted verifier.

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export type KeyBundleStatus = {
   state: string;
@@ -17,6 +18,19 @@ export type StartHelperRequest = {
   keysDir?: string;
   fixture?: boolean;
   devCreateKeys?: boolean;
+};
+
+export type ActivateKeyBundleRequest = {
+  sourceDir: string;
+  trustedManifestPublicKeyHex: string;
+  expectedSignatureKeyId: string;
+  minFreeBytes?: number;
+};
+
+export type KeyBundleProgress = {
+  file_name: string;
+  copied_bytes: number;
+  total_bytes: number;
 };
 
 export type HelperStartup = {
@@ -42,6 +56,9 @@ export type HelperProcessStatus = {
 
 export type DesktopApi = {
   keyStatus(): Promise<KeyBundleStatus>;
+  activateKeyBundle(request: ActivateKeyBundleRequest): Promise<KeyBundleStatus>;
+  cancelKeyBundleActivation(): Promise<void>;
+  onKeyBundleProgress(callback: (progress: KeyBundleProgress) => void): Promise<() => void>;
   deleteKeyCache(): Promise<KeyBundleStatus>;
   startHelper(request: StartHelperRequest): Promise<HelperStartup>;
   stopHelper(): Promise<HelperProcessStatus>;
@@ -51,10 +68,13 @@ export type DesktopApi = {
 
 export const tauriDesktopApi: DesktopApi = {
   keyStatus: () => invoke<KeyBundleStatus>("key_status"),
+  activateKeyBundle: (request) => invoke<KeyBundleStatus>("activate_key_bundle", { request }),
+  cancelKeyBundleActivation: () => invoke<void>("cancel_key_bundle_activation"),
+  onKeyBundleProgress: (callback) =>
+    listen<KeyBundleProgress>("key-bundle-progress", (event) => callback(event.payload)),
   deleteKeyCache: () => invoke<KeyBundleStatus>("delete_key_cache"),
   startHelper: (request) => invoke<HelperStartup>("start_helper", { request }),
   stopHelper: () => invoke<HelperProcessStatus>("stop_helper"),
   helperProcessStatus: () => invoke<HelperProcessStatus>("helper_process_status"),
   openUrl: (url) => invoke<void>("open_url", { url }),
 };
-

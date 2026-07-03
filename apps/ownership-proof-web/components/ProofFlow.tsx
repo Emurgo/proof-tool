@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Copy, Download, ExternalLink, Loader2, Power, RefreshCw, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Copy, Download, ExternalLink, Loader2, Power, RefreshCw, ShieldCheck, X } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type HelperState = "checking" | "offline" | "ready" | "key_missing" | "key_downloading" | "update_required" | "not_ready";
@@ -462,19 +462,58 @@ function StateBand({
 }
 
 function InstallActions() {
-  const platform = detectPlatform();
-  const primary = downloadChoices.find((choice) => choice.platform === platform) ?? downloadChoices[0];
+  const [isOpen, setIsOpen] = useState(false);
+
   return (
     <>
-      <a className="secondary-button" href={primary.href} target="_blank" rel="noreferrer">
+      <button className="secondary-button" type="button" onClick={() => setIsOpen(true)}>
         <Download size={17} />
         Install Proof Helper
-      </a>
+      </button>
       <a className="secondary-button compact-link" href={releasePage} target="_blank" rel="noreferrer">
         <ExternalLink size={17} />
         Downloads
       </a>
+      {isOpen ? <InstallDialog onClose={() => setIsOpen(false)} /> : null}
     </>
+  );
+}
+
+function InstallDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div
+        className="install-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="install-dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-heading">
+          <div>
+            <h3 id="install-dialog-title">Choose your installer</h3>
+            <p>Select the operating system for this computer.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close installer chooser">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="platform-list">
+          {downloadChoices.map((choice) => (
+            <a className="platform-choice" key={choice.platform} href={choice.href} target="_blank" rel="noreferrer" onClick={onClose}>
+              <span>
+                <strong>{choice.label}</strong>
+                <small>{choice.description}</small>
+              </span>
+              <span className="platform-action">
+                {choice.action}
+                <ExternalLink size={16} />
+              </span>
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -645,25 +684,30 @@ function normalizeLocalURL(value: string) {
   return `http://${trimSlash(trimmed)}`;
 }
 
-const releasePage = "https://github.com/proof-zk-recovery/proof-tool/releases/latest";
+const releaseRepo = "https://github.com/Anastasia-Labs/proof-tool-release";
+const releasePage = `${releaseRepo}/releases/latest`;
+const linuxDebDownload = `${releaseRepo}/releases/latest/download/proof-helper_0.1.0_amd64.deb`;
 
 const downloadChoices = [
-  { platform: "mac", href: releasePage },
-  { platform: "windows", href: releasePage },
-  { platform: "linux", href: releasePage },
+  {
+    platform: "windows",
+    label: "Windows",
+    description: "For Edge, Chrome, or Firefox on Windows.",
+    action: "Open release",
+    href: releasePage,
+  },
+  {
+    platform: "mac",
+    label: "macOS",
+    description: "For Safari, Chrome, or Firefox on macOS.",
+    action: "Open release",
+    href: releasePage,
+  },
+  {
+    platform: "linux",
+    label: "Linux",
+    description: "Downloads the Debian package.",
+    action: "Download .deb",
+    href: linuxDebDownload,
+  },
 ] as const;
-
-function detectPlatform(): (typeof downloadChoices)[number]["platform"] {
-  if (typeof navigator === "undefined") {
-    return "linux";
-  }
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-  const platform = `${nav.userAgentData?.platform ?? nav.platform ?? ""}`.toLowerCase();
-  if (platform.includes("mac")) {
-    return "mac";
-  }
-  if (platform.includes("win")) {
-    return "windows";
-  }
-  return "linux";
-}

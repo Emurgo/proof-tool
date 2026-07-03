@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -77,5 +78,68 @@ func TestWriteStartupJSON(t *testing.T) {
 	}
 	if decoded.KeyCompatibility != "ready" || !decoded.KeyReady {
 		t.Fatalf("decoded key status = %+v", decoded)
+	}
+	assertStartupPairingContract(t, decoded)
+}
+
+func TestServeHelperRejectsMissingSiteURL(t *testing.T) {
+	err := cmdServeHelper([]string{"--addr", "127.0.0.1:0", "--fixture", "--no-open"})
+	if err == nil || !strings.Contains(err.Error(), "--site-url is required") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestServeHelperRejectsNonLoopbackBind(t *testing.T) {
+	err := cmdServeHelper([]string{
+		"--addr", "0.0.0.0:0",
+		"--site-url", "https://proof.example/prove",
+		"--fixture",
+		"--no-open",
+	})
+	if err == nil || !strings.Contains(err.Error(), "must bind to loopback") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func assertStartupPairingContract(t *testing.T, event helperStartupEvent) {
+	t.Helper()
+	if event.Type != "proof_tool_helper_ready" {
+		t.Fatalf("startup event type = %q", event.Type)
+	}
+	if event.Token == "" {
+		t.Fatal("startup token is empty")
+	}
+	helperURL, err := url.Parse(event.HelperURL)
+	if err != nil {
+		t.Fatalf("helper URL: %v", err)
+	}
+	if helperURL.Scheme != "http" || helperURL.Hostname() != "127.0.0.1" {
+		t.Fatalf("helper URL is not loopback http: %s", event.HelperURL)
+	}
+
+	siteOrigin, err := originForURL(event.SiteURL)
+	if err != nil {
+		t.Fatalf("site origin: %v", err)
+	}
+	if len(event.AllowedOrigins) != 1 || event.AllowedOrigins[0] != siteOrigin {
+		t.Fatalf("allowed origins = %+v, want %q", event.AllowedOrigins, siteOrigin)
+	}
+
+	pairedURL, err := url.Parse(event.PairingURL)
+	if err != nil {
+		t.Fatalf("pairing URL: %v", err)
+	}
+	if pairedURL.RawQuery != "" {
+		t.Fatalf("pairing data leaked into query: %s", pairedURL.RawQuery)
+	}
+	fragment, err := url.ParseQuery(pairedURL.Fragment)
+	if err != nil {
+		t.Fatalf("pairing fragment: %v", err)
+	}
+	if got := fragment.Get("helper"); got != event.HelperURL {
+		t.Fatalf("fragment helper = %q, want %q", got, event.HelperURL)
+	}
+	if got := fragment.Get("pair"); got != event.Token {
+		t.Fatalf("fragment pair = %q, want token", got)
 	}
 }

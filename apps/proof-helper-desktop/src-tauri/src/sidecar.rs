@@ -1,11 +1,12 @@
 use crate::key_bundle;
 use serde::{Deserialize, Serialize};
+use sidecar_core::{HelperStartup, ServeHelperLaunch};
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 
 #[derive(Default)]
 pub struct SidecarState {
@@ -27,28 +28,9 @@ pub struct HelperProcessStatus {
     pub running: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct HelperStartup {
-    #[serde(rename = "type")]
-    pub event_type: String,
-    pub helper_url: String,
-    pub site_url: String,
-    pub pairing_url: String,
-    pub token: String,
-    pub allowed_origins: Vec<String>,
-    pub sidecar_version: String,
-    pub protocol_version: String,
-    pub circuit_id: String,
-    pub key_state: String,
-    pub key_ready: bool,
-    pub key_version: Option<String>,
-    pub key_hash: Option<String>,
-    pub key_compatibility: String,
-}
-
 #[tauri::command]
-pub fn start_helper(
-    app: AppHandle,
+pub fn start_helper<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, SidecarState>,
     request: StartHelperRequest,
 ) -> Result<HelperStartup, String> {
@@ -67,22 +49,13 @@ pub fn start_helper(
         _ => key_bundle::active_key_dir(&app)?,
     };
 
-    let mut args = vec![
-        "serve-helper".to_string(),
-        "--addr".to_string(),
-        "127.0.0.1:0".to_string(),
-        "--keys-dir".to_string(),
-        keys_dir.display().to_string(),
-        "--site-url".to_string(),
-        request.site_url,
-        "--no-open".to_string(),
-    ];
-    if request.fixture.unwrap_or(false) {
-        args.push("--fixture".to_string());
-    }
-    if request.dev_create_keys.unwrap_or(false) {
-        args.push("--dev-create-keys".to_string());
-    }
+    let args = sidecar_core::serve_helper_args(&ServeHelperLaunch {
+        site_url: request.site_url,
+        keys_dir,
+        fixture: request.fixture.unwrap_or(false),
+        dev_create_keys: request.dev_create_keys.unwrap_or(false),
+    })
+    .map_err(|err| err.to_string())?;
 
     let mut child = Command::new(&sidecar_path)
         .args(args)
@@ -105,8 +78,7 @@ pub fn start_helper(
         let _ = child.kill();
         return Err("sidecar exited before startup JSON".to_string());
     }
-    let startup: HelperStartup = serde_json::from_str(line.trim())
-        .map_err(|err| format!("parse sidecar startup JSON: {err}"))?;
+    let startup = sidecar_core::parse_helper_startup_line(&line).map_err(|err| err.to_string())?;
     *slot = Some(child);
     Ok(startup)
 }
@@ -146,7 +118,10 @@ fn process_running(child: Option<&mut Child>) -> bool {
     }
 }
 
-fn resolve_sidecar_path(app: &AppHandle, explicit: Option<&str>) -> Result<PathBuf, String> {
+fn resolve_sidecar_path<R: Runtime>(
+    app: &AppHandle<R>,
+    explicit: Option<&str>,
+) -> Result<PathBuf, String> {
     if let Some(path) = explicit {
         let path = PathBuf::from(path);
         if path.exists() {
@@ -171,7 +146,7 @@ fn resolve_sidecar_path(app: &AppHandle, explicit: Option<&str>) -> Result<PathB
     Ok(PathBuf::from("proof-tool"))
 }
 
-fn bundled_candidates(app: &AppHandle) -> Vec<PathBuf> {
+fn bundled_candidates<R: Runtime>(app: &AppHandle<R>) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(resource_dir) = app.path().resource_dir() {
         push_candidate_set(&mut out, &resource_dir);
@@ -187,15 +162,5 @@ fn bundled_candidates(app: &AppHandle) -> Vec<PathBuf> {
 }
 
 fn push_candidate_set(out: &mut Vec<PathBuf>, dir: &Path) {
-    let suffix = match (env::consts::OS, env::consts::ARCH) {
-        ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
-        ("macos", "x86_64") => "x86_64-apple-darwin",
-        ("macos", "aarch64") => "aarch64-apple-darwin",
-        ("windows", "x86_64") => "x86_64-pc-windows-msvc.exe",
-        _ => "",
-    };
-    out.push(dir.join("proof-tool"));
-    if !suffix.is_empty() {
-        out.push(dir.join(format!("proof-tool-{suffix}")));
-    }
+    sidecar_core::push_candidate_set(out, dir, env::consts::OS, env::consts::ARCH);
 }

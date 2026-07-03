@@ -47,6 +47,10 @@ func run(args []string) error {
 		return cmdVerify(args[2:])
 	case "export-cardano":
 		return cmdExportCardano(args[2:])
+	case "setup-ceremony":
+		return cmdSetupCeremony(args[2:])
+	case "verify-key-bundle":
+		return cmdVerifyKeyBundle(args[2:])
 	case "serve-verifier":
 		return cmdServeVerifier(args[2:])
 	case "serve-helper":
@@ -571,5 +575,5 @@ func writeTextFile(path, text string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|verify|export-cardano|serve-verifier|serve-helper> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|verify|export-cardano|setup-ceremony|verify-key-bundle|serve-verifier|serve-helper> [flags]")
 }

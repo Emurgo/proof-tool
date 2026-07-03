@@ -267,6 +267,46 @@ input {
   accent-color: #2f7f6a;
 }
 
+.progress-block {
+  display: grid;
+  gap: 8px;
+  min-height: 58px;
+  border: 1px solid #d8dfd8;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.progress-block div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-block span,
+.progress-block strong {
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.progress-block span {
+  color: #59645e;
+  font-weight: 700;
+}
+
+.progress-block strong {
+  color: #1d2823;
+  font-weight: 750;
+}
+
+.progress-block progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #2f7f6a;
+}
+
 .primary-button,
 .secondary-button,
 .icon-button {

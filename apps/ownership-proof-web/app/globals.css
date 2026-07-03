@@ -289,6 +289,92 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(27, 28, 31, 0.28);
+}
+
+.install-dialog {
+  width: min(100%, 560px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(27, 28, 31, 0.22);
+  padding: 18px;
+}
+
+.dialog-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.dialog-heading h3 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: 0;
+}
+
+.dialog-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.platform-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.platform-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 78px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 13px 14px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.platform-choice:hover,
+.platform-choice:focus-visible {
+  border-color: var(--action);
+  outline: none;
+}
+
+.platform-choice strong,
+.platform-choice small {
+  display: block;
+}
+
+.platform-choice small {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.platform-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--action);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .fine {
   font-size: 13px;
 }
@@ -306,5 +392,13 @@ button:disabled {
   .field-grid,
   .toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .platform-choice {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-action {
+    white-space: normal;
   }
 }

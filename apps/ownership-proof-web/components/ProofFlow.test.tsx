@@ -17,6 +17,25 @@ describe("ProofFlow", () => {
     render(<ProofFlow createWorker={fakeWorkerSuccess} />);
 
     expect((await screen.findAllByText("Install Proof Helper")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /install proof helper/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^downloads$/i })).toHaveAttribute(
+      "href",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /install proof helper/i }));
+    expect(screen.getByRole("dialog", { name: /choose your installer/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /windows/i })).toHaveAttribute(
+      "href",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest",
+    );
+    expect(screen.getByRole("link", { name: /macos/i })).toHaveAttribute(
+      "href",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest",
+    );
+    expect(screen.getByRole("link", { name: /linux/i })).toHaveAttribute(
+      "href",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest/download/proof-helper_0.1.0_amd64.deb",
+    );
     expect(screen.queryByLabelText("Pairing token")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Helper URL")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Verifier URL")).not.toBeInTheDocument();

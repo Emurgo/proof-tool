@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import type { DesktopApi, HelperStartup, KeyBundleStatus } from "./desktopApi";
+import type { DesktopApi, HelperStartup, KeyBundleProgress, KeyBundleStatus } from "./desktopApi";
 
 const missingStatus: KeyBundleStatus = {
   state: "missing",
@@ -47,6 +47,43 @@ describe("Proof Helper desktop app", () => {
     expect(screen.getByText("key bundle is not installed")).toBeInTheDocument();
   });
 
+  it("installs a key bundle from a local source", async () => {
+    const api = fakeApi({ keyStatus: missingStatus, activateStatus: readyStatus });
+    render(<App api={api} />);
+
+    await screen.findByText("key bundle is not installed");
+    fireEvent.change(screen.getByLabelText("Bundle source"), { target: { value: "/tmp/source-bundle" } });
+    fireEvent.change(screen.getByLabelText("Manifest public key"), { target: { value: "ab".repeat(32) } });
+    fireEvent.change(screen.getByLabelText("Signature key id"), { target: { value: "test-signer" } });
+    fireEvent.click(screen.getByRole("button", { name: /install key/i }));
+
+    await waitFor(() => expect(api.activateKeyBundle).toHaveBeenCalledOnce());
+    expect(api.activateKeyBundle).toHaveBeenCalledWith({
+      sourceDir: "/tmp/source-bundle",
+      trustedManifestPublicKeyHex: "ab".repeat(32),
+      expectedSignatureKeyId: "test-signer",
+      minFreeBytes: 1,
+    });
+    expect(await screen.findByText("Staging ownership.pk")).toBeInTheDocument();
+    expect(screen.getByText("50%")).toBeInTheDocument();
+    expect(await screen.findByText("Key bundle installed and verified.")).toBeInTheDocument();
+  });
+
+  it("requests cancellation while installing a key bundle", async () => {
+    const api = fakeApi({ keyStatus: missingStatus, activateNever: true });
+    render(<App api={api} />);
+
+    await screen.findByText("key bundle is not installed");
+    fireEvent.change(screen.getByLabelText("Bundle source"), { target: { value: "/tmp/source-bundle" } });
+    fireEvent.change(screen.getByLabelText("Manifest public key"), { target: { value: "cd".repeat(32) } });
+    fireEvent.click(screen.getByRole("button", { name: /install key/i }));
+
+    const cancel = await screen.findByRole("button", { name: /cancel install/i });
+    fireEvent.click(cancel);
+
+    await waitFor(() => expect(api.cancelKeyBundleActivation).toHaveBeenCalledOnce());
+  });
+
   it("starts helper and opens the pairing URL", async () => {
     const api = fakeApi({ keyStatus: readyStatus, startup });
     render(<App api={api} />);
@@ -75,13 +112,32 @@ function fakeApi({
   keyStatus,
   deleteStatus = keyStatus,
   startup: helperStartup = startup,
+  activateStatus,
+  activateNever = false,
 }: {
   keyStatus: KeyBundleStatus;
   deleteStatus?: KeyBundleStatus;
   startup?: HelperStartup;
+  activateStatus?: KeyBundleStatus;
+  activateNever?: boolean;
 }): DesktopApi {
+  let progressListener: ((progress: KeyBundleProgress) => void) | undefined;
   return {
     keyStatus: vi.fn().mockResolvedValue(keyStatus),
+    activateKeyBundle: vi.fn().mockImplementation(() => {
+      progressListener?.({ file_name: "ownership.pk", copied_bytes: 8, total_bytes: 16 });
+      if (activateNever) {
+        return new Promise(() => undefined);
+      }
+      return Promise.resolve(activateStatus ?? keyStatus);
+    }),
+    cancelKeyBundleActivation: vi.fn().mockResolvedValue(undefined),
+    onKeyBundleProgress: vi.fn().mockImplementation((callback: (progress: KeyBundleProgress) => void) => {
+      progressListener = callback;
+      return Promise.resolve(() => {
+        progressListener = undefined;
+      });
+    }),
     deleteKeyCache: vi.fn().mockResolvedValue(deleteStatus),
     startHelper: vi.fn().mockResolvedValue(helperStartup),
     stopHelper: vi.fn().mockResolvedValue({ running: false }),
