@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { blake2b } from "@noble/hashes/blake2b";
+import * as LucidExports from "@lucid-evolution/lucid";
 import {
   Constr,
   Data,
@@ -30,7 +31,13 @@ const CREDENTIAL_4 = "cc".repeat(28);
 const CREDENTIAL_5 = "dd".repeat(28);
 const CREDENTIAL_6 = "ee".repeat(28);
 const SAFE_CREDENTIAL = "00000000000000000000000000000000000000000000000000000001";
-const RECLAIM_SCRIPT = "11111111111111111111111111111111111111111111111111111111";
+const TEST_RECLAIM_BASE_SCRIPT = { type: "PlutusV3" as const, script: "450100002499" };
+const TEST_RECLAIM_GLOBAL_SCRIPT = { type: "PlutusV3" as const, script: "450100002498" };
+const testValidatorToScriptHash = (LucidExports as unknown as {
+  validatorToScriptHash: (script: typeof TEST_RECLAIM_BASE_SCRIPT) => string;
+}).validatorToScriptHash;
+const RECLAIM_SCRIPT = testValidatorToScriptHash(TEST_RECLAIM_BASE_SCRIPT);
+const RECLAIM_GLOBAL_SCRIPT = testValidatorToScriptHash(TEST_RECLAIM_GLOBAL_SCRIPT);
 const PARAMS_POLICY = "55".repeat(28);
 const PARAMS_TOKEN_NAME = "5245434c41494d";
 const PARAMS_HOLDER_ADDRESS = credentialToAddress("Preprod", scriptHashToCredential("66".repeat(28)));
@@ -44,7 +51,7 @@ const DEPLOYMENT: ReclaimDeployment = {
   reclaimBaseAddress: RECLAIM_ADDRESS,
   reclaimBaseScriptHash: RECLAIM_SCRIPT,
   reclaimGlobalCredential: "33".repeat(28),
-  reclaimGlobalScriptHash: "44".repeat(28),
+  reclaimGlobalScriptHash: RECLAIM_GLOBAL_SCRIPT,
   paramsCurrencySymbol: PARAMS_POLICY,
   paramsTokenName: PARAMS_TOKEN_NAME,
   verifierVkHash: VK_HASH,
@@ -276,9 +283,133 @@ describe("claim build and submit fail closed", () => {
           outRefId: `${DEPLOYMENT.paramsUtxo?.tx_hash}#${DEPLOYMENT.paramsUtxo?.output_index}`,
           holderAddress: PARAMS_HOLDER_ADDRESS,
         },
+        buildReady: false,
+        missingBuildArtifacts: ["reference_scripts.reclaim_base", "reference_scripts.reclaim_global"],
+        referenceScripts: {
+          ready: false,
+          missing: ["reference_scripts.reclaim_base", "reference_scripts.reclaim_global"],
+          inputs: [],
+        },
         orderedPaymentCredentials: [CREDENTIAL_1],
       },
+      reason: "build_prerequisites_missing",
+      missingBuildArtifacts: ["reference_scripts.reclaim_base", "reference_scripts.reclaim_global"],
     });
+  });
+
+  it("verifies configured reference script UTxOs before the unsupported build boundary", async () => {
+    const deployment = deploymentWithReferenceScripts();
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: referenceScriptUtxos(deployment),
+    });
+    const draft = await selectedDraft(provider, selected, deployment);
+
+    await expect(
+      validateClaimBuildRequest(provider, deployment, {
+        deploymentId: deployment.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(selected)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({
+      code: "claim_build_unsupported",
+      reason: "transaction_builder_not_implemented",
+      missingBuildArtifacts: [],
+      preflight: {
+        buildReady: true,
+        missingBuildArtifacts: [],
+        referenceScripts: {
+          ready: true,
+          missing: [],
+          inputs: [
+            {
+              role: "reclaim_base",
+              outRefId: `${deployment.referenceScripts?.reclaimBase.tx_hash}#${deployment.referenceScripts?.reclaimBase.output_index}`,
+              scriptHash: RECLAIM_SCRIPT,
+              scriptType: "PlutusV3",
+            },
+            {
+              role: "reclaim_global",
+              outRefId: `${deployment.referenceScripts?.reclaimGlobal.tx_hash}#${deployment.referenceScripts?.reclaimGlobal.output_index}`,
+              scriptHash: RECLAIM_GLOBAL_SCRIPT,
+              scriptType: "PlutusV3",
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("rejects configured reference script UTxOs that are unavailable or mismatched", async () => {
+    const deployment = deploymentWithReferenceScripts();
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const baseInput = {
+      deploymentId: deployment.id,
+      networkId: 0,
+      selectedOutrefs: [outRefToString(selected)],
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+    };
+    const proofProvider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: referenceScriptUtxos(deployment),
+    });
+    const draft = await selectedDraft(proofProvider, selected, deployment);
+
+    const missingReferenceProvider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: [],
+    });
+    await expect(
+      validateClaimBuildRequest(missingReferenceProvider, deployment, {
+        ...baseInput,
+        draftId: draft.draftId,
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({ code: "claim_reference_script_not_found" });
+
+    const wrongScriptRefProvider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: referenceScriptUtxos(deployment, {
+        reclaimGlobal: { scriptRef: TEST_RECLAIM_BASE_SCRIPT },
+      }),
+    });
+    await expect(
+      validateClaimBuildRequest(wrongScriptRefProvider, deployment, {
+        ...baseInput,
+        draftId: draft.draftId,
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({ code: "claim_reference_script_hash_mismatch" });
+
+    const invalidScriptRefProvider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: referenceScriptUtxos(deployment, {
+        reclaimGlobal: { scriptRef: { type: "PlutusV3", script: "4948010000222601" } as UTxO["scriptRef"] },
+      }),
+    });
+    await expect(
+      validateClaimBuildRequest(invalidScriptRefProvider, deployment, {
+        ...baseInput,
+        draftId: draft.draftId,
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({ code: "claim_reference_script_invalid" });
   });
 
   it("rejects stale drafts before the unsupported build boundary", async () => {
@@ -558,7 +689,13 @@ function paramsUtxo(overrides: Partial<UTxO> = {}): UTxO {
   } as UTxO;
 }
 
-function providerWith(input: { reclaimUtxos: UTxO[]; selectedUtxos: UTxO[]; safeUtxos: UTxO[]; paramsUtxo?: UTxO | null }): Provider {
+function providerWith(input: {
+  reclaimUtxos: UTxO[];
+  selectedUtxos: UTxO[];
+  safeUtxos: UTxO[];
+  paramsUtxo?: UTxO | null;
+  referenceScriptUtxos?: UTxO[];
+}): Provider {
   return {
     getUtxos: async (addressOrCredential: string) => {
       if (addressOrCredential === RECLAIM_ADDRESS) {
@@ -571,9 +708,11 @@ function providerWith(input: { reclaimUtxos: UTxO[]; selectedUtxos: UTxO[]; safe
     },
     getUtxosByOutRef: async (outrefs: OutRef[]) => {
       const requested = new Set(outrefs.map(outRefToString));
-      return [...input.selectedUtxos, ...(input.paramsUtxo === null ? [] : [input.paramsUtxo ?? paramsUtxo()])].filter((utxo) =>
-        requested.has(outRefToString(utxo)),
-      );
+      return [
+        ...input.selectedUtxos,
+        ...(input.paramsUtxo === null ? [] : [input.paramsUtxo ?? paramsUtxo()]),
+        ...(input.referenceScriptUtxos ?? []),
+      ].filter((utxo) => requested.has(outRefToString(utxo)));
     },
   } as unknown as Provider;
 }
@@ -593,14 +732,71 @@ function proofArtifact(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function selectedDraft(provider: Provider, ...selected: UTxO[]): Promise<ClaimDraftResponse> {
-  return createClaimDraft(provider, DEPLOYMENT, {
-    deploymentId: DEPLOYMENT.id,
+async function selectedDraft(provider: Provider, ...args: Array<UTxO | ReclaimDeployment>): Promise<ClaimDraftResponse> {
+  const maybeDeployment = args.at(-1);
+  const deployment = isDeployment(maybeDeployment) ? maybeDeployment : DEPLOYMENT;
+  const selected = (isDeployment(maybeDeployment) ? args.slice(0, -1) : args) as UTxO[];
+  return createClaimDraft(provider, deployment, {
+    deploymentId: deployment.id,
     networkId: 0,
     safeWalletChangeAddress: SAFE_ADDRESS,
     safeWalletAddresses: [SAFE_ADDRESS],
     selectedOutrefs: selected.map(outRefToString),
   });
+}
+
+function deploymentWithReferenceScripts(): ReclaimDeployment {
+  return {
+    ...DEPLOYMENT,
+    referenceScripts: {
+      reclaimBase: {
+        tx_hash: "12".repeat(32),
+        output_index: 0,
+        script_hash: RECLAIM_SCRIPT,
+        holder_address: PARAMS_HOLDER_ADDRESS,
+      },
+      reclaimGlobal: {
+        tx_hash: "13".repeat(32),
+        output_index: 0,
+        script_hash: RECLAIM_GLOBAL_SCRIPT,
+        holder_address: PARAMS_HOLDER_ADDRESS,
+      },
+    },
+  };
+}
+
+function referenceScriptUtxos(
+  deployment: ReclaimDeployment,
+  overrides: {
+    reclaimBase?: Partial<UTxO>;
+    reclaimGlobal?: Partial<UTxO>;
+  } = {},
+): UTxO[] {
+  if (!deployment.referenceScripts) {
+    return [];
+  }
+  return [
+    {
+      txHash: deployment.referenceScripts.reclaimBase.tx_hash,
+      outputIndex: deployment.referenceScripts.reclaimBase.output_index,
+      address: deployment.referenceScripts.reclaimBase.holder_address ?? PARAMS_HOLDER_ADDRESS,
+      assets: { lovelace: 5_000_000n },
+      scriptRef: TEST_RECLAIM_BASE_SCRIPT,
+      ...overrides.reclaimBase,
+    } as UTxO,
+    {
+      txHash: deployment.referenceScripts.reclaimGlobal.tx_hash,
+      outputIndex: deployment.referenceScripts.reclaimGlobal.output_index,
+      address: deployment.referenceScripts.reclaimGlobal.holder_address ?? PARAMS_HOLDER_ADDRESS,
+      assets: { lovelace: 5_000_000n },
+      scriptRef: TEST_RECLAIM_GLOBAL_SCRIPT,
+      ...overrides.reclaimGlobal,
+    } as UTxO,
+  ];
+}
+
+function isDeployment(value: unknown): value is ReclaimDeployment {
+  return Boolean(value && typeof value === "object" && "reclaimBaseAddress" in value && "verifierVkHash" in value);
 }
 
 function proofArtifactForDraft(draft: ClaimDraftResponse, index: number): any {

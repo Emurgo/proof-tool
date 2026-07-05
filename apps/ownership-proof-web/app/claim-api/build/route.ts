@@ -42,7 +42,16 @@ export async function POST(request: NextRequest) {
 
 function errorResponse(error: unknown) {
   if (error instanceof UnsupportedClaimBuildError) {
-    return NextResponse.json({ error: error.message, code: error.code, preflight: error.preflight }, { status: 501 });
+    return NextResponse.json(
+      {
+        error: error.message,
+        code: error.code,
+        reason: error.reason,
+        missingBuildArtifacts: error.missingBuildArtifacts,
+        preflight: error.preflight,
+      },
+      { status: 501 },
+    );
   }
   if (error instanceof ClaimValidationError || error instanceof ReclaimValidationError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });

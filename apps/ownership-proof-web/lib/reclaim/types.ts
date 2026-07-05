@@ -40,6 +40,17 @@ export type ReclaimDeployment = {
     primary: "blockfrost" | "koios";
     fallback: "blockfrost" | "koios";
   };
+  referenceScripts?: {
+    reclaimBase: ReclaimReferenceScriptDeployment;
+    reclaimGlobal: ReclaimReferenceScriptDeployment;
+  };
+};
+
+export type ReclaimReferenceScriptDeployment = {
+  tx_hash: string;
+  output_index: number;
+  script_hash: string;
+  holder_address?: string;
 };
 
 export type DeploymentResponse =

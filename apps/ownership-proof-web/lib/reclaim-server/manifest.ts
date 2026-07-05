@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { ReclaimDeployment, ReclaimNetwork } from "../reclaim/types";
+import type { ReclaimDeployment, ReclaimNetwork, ReclaimReferenceScriptDeployment } from "../reclaim/types";
 
 export const RECLAIM_DEPLOYMENT_SCHEMA = "proof-tool-reclaim-deployment-v1";
 export const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v1/bls12-381/groth16";
@@ -57,6 +57,10 @@ export type ReclaimDeploymentManifest = {
     primary: ProviderName;
     fallback: ProviderName;
   };
+  reference_scripts?: {
+    reclaim_base: ReclaimReferenceScriptDeployment;
+    reclaim_global: ReclaimReferenceScriptDeployment;
+  };
   enabled?: boolean;
 };
 
@@ -87,6 +91,10 @@ export type ClaimDeploymentCapabilities = {
   destinationAddressEncoding: typeof DESTINATION_ADDRESS_ENCODING;
   indexerStatus: "not_configured";
   singleGlobalCompatible: boolean;
+  transactionBuild: {
+    referenceScriptsConfigured: boolean;
+    missing: string[];
+  };
 };
 
 export type DeploymentConfigResult =
@@ -163,6 +171,14 @@ const FLAT_ENV_FIELDS = {
   maxTxMemPercent: "RECLAIM_MAX_TX_MEM_PERCENT",
   provider: "RECLAIM_PROVIDER",
   providerFallback: "RECLAIM_PROVIDER_FALLBACK",
+  reclaimBaseReferenceScriptTxHash: "RECLAIM_BASE_REFERENCE_SCRIPT_TX_HASH",
+  reclaimBaseReferenceScriptOutputIndex: "RECLAIM_BASE_REFERENCE_SCRIPT_OUTPUT_INDEX",
+  reclaimBaseReferenceScriptHash: "RECLAIM_BASE_REFERENCE_SCRIPT_HASH",
+  reclaimBaseReferenceScriptHolderAddress: "RECLAIM_BASE_REFERENCE_SCRIPT_HOLDER_ADDRESS",
+  reclaimGlobalReferenceScriptTxHash: "RECLAIM_GLOBAL_REFERENCE_SCRIPT_TX_HASH",
+  reclaimGlobalReferenceScriptOutputIndex: "RECLAIM_GLOBAL_REFERENCE_SCRIPT_OUTPUT_INDEX",
+  reclaimGlobalReferenceScriptHash: "RECLAIM_GLOBAL_REFERENCE_SCRIPT_HASH",
+  reclaimGlobalReferenceScriptHolderAddress: "RECLAIM_GLOBAL_REFERENCE_SCRIPT_HOLDER_ADDRESS",
   enabled: "RECLAIM_DEPLOYMENT_ENABLED",
 } as const;
 
@@ -229,6 +245,46 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
   { env: FLAT_ENV_FIELDS.maxTxCpuPercent, field: "batching.max_tx_cpu_percent", getValue: (manifest) => String(manifest.batching.max_tx_cpu_percent) },
   { env: FLAT_ENV_FIELDS.maxTxMemPercent, field: "batching.max_tx_mem_percent", getValue: (manifest) => String(manifest.batching.max_tx_mem_percent) },
   { env: FLAT_ENV_FIELDS.providerFallback, field: "provider.fallback", getValue: (manifest) => manifest.provider.fallback },
+  {
+    env: FLAT_ENV_FIELDS.reclaimBaseReferenceScriptTxHash,
+    field: "reference_scripts.reclaim_base.tx_hash",
+    getValue: (manifest) => manifest.reference_scripts?.reclaim_base.tx_hash ?? "",
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimBaseReferenceScriptOutputIndex,
+    field: "reference_scripts.reclaim_base.output_index",
+    getValue: (manifest) => formatOptionalNumber(manifest.reference_scripts?.reclaim_base.output_index),
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimBaseReferenceScriptHash,
+    field: "reference_scripts.reclaim_base.script_hash",
+    getValue: (manifest) => manifest.reference_scripts?.reclaim_base.script_hash ?? "",
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimBaseReferenceScriptHolderAddress,
+    field: "reference_scripts.reclaim_base.holder_address",
+    getValue: (manifest) => manifest.reference_scripts?.reclaim_base.holder_address ?? "",
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptTxHash,
+    field: "reference_scripts.reclaim_global.tx_hash",
+    getValue: (manifest) => manifest.reference_scripts?.reclaim_global.tx_hash ?? "",
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptOutputIndex,
+    field: "reference_scripts.reclaim_global.output_index",
+    getValue: (manifest) => formatOptionalNumber(manifest.reference_scripts?.reclaim_global.output_index),
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptHash,
+    field: "reference_scripts.reclaim_global.script_hash",
+    getValue: (manifest) => manifest.reference_scripts?.reclaim_global.script_hash ?? "",
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptHolderAddress,
+    field: "reference_scripts.reclaim_global.holder_address",
+    getValue: (manifest) => manifest.reference_scripts?.reclaim_global.holder_address ?? "",
+  },
 ];
 
 export function loadReclaimDeployment(options: ManifestLoadOptions = {}): DeploymentConfigResult {
@@ -292,6 +348,7 @@ export function validateReclaimDeploymentManifest(raw: unknown):
   const proof = objectField(root.proof, "proof", errors);
   const batching = objectField(root.batching, "batching", errors);
   const provider = objectField(root.provider, "provider", errors);
+  const referenceScripts = optionalReferenceScriptsField(root.reference_scripts, errors);
 
   const schema = stringField(root.schema, "schema", errors);
   const deploymentId = stringField(root.deployment_id, "deployment_id", errors);
@@ -356,6 +413,9 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       fallback: providerField(provider.fallback, "provider.fallback", errors),
     },
   };
+  if (referenceScripts) {
+    manifest.reference_scripts = referenceScripts;
+  }
 
   if (root.enabled !== undefined) {
     if (typeof root.enabled !== "boolean") {
@@ -414,6 +474,36 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       message: "parameter UTxO policy id must equal reclaim_global.params_currency_symbol.",
     });
   }
+  if (manifest.reference_scripts?.reclaim_base.script_hash && manifest.reclaim_base.script_hash) {
+    if (manifest.reference_scripts.reclaim_base.script_hash !== manifest.reclaim_base.script_hash) {
+      errors.push({
+        code: "reference_script_hash_mismatch",
+        field: "reference_scripts.reclaim_base.script_hash",
+        message: "ReclaimBase reference script hash must equal reclaim_base.script_hash.",
+      });
+    }
+  }
+  if (manifest.reference_scripts?.reclaim_global.script_hash && manifest.reclaim_global.script_hash) {
+    if (manifest.reference_scripts.reclaim_global.script_hash !== manifest.reclaim_global.script_hash) {
+      errors.push({
+        code: "reference_script_hash_mismatch",
+        field: "reference_scripts.reclaim_global.script_hash",
+        message: "ReclaimGlobal reference script hash must equal reclaim_global.script_hash.",
+      });
+    }
+  }
+  if (manifest.reference_scripts) {
+    const paramsOutRef = `${manifest.params_utxo.tx_hash}#${manifest.params_utxo.output_index}`;
+    for (const [role, referenceScript] of Object.entries(manifest.reference_scripts)) {
+      if (`${referenceScript.tx_hash}#${referenceScript.output_index}` === paramsOutRef) {
+        errors.push({
+          code: "reference_script_outref_conflict",
+          field: `reference_scripts.${role}`,
+          message: "reference script UTxOs must be distinct from the parameter reference UTxO.",
+        });
+      }
+    }
+  }
   if (
     manifest.batching.default_utxo_count > manifest.batching.optimization_utxo_count ||
     manifest.batching.optimization_utxo_count > manifest.batching.hard_max_utxo_count
@@ -462,6 +552,12 @@ export function deploymentFromManifest(manifest: ReclaimDeploymentManifest): Rec
     proof: manifest.proof,
     batching: manifest.batching,
     provider: manifest.provider,
+    referenceScripts: manifest.reference_scripts
+      ? {
+          reclaimBase: manifest.reference_scripts.reclaim_base,
+          reclaimGlobal: manifest.reference_scripts.reclaim_global,
+        }
+      : undefined,
   };
 }
 
@@ -570,7 +666,45 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
       primary: normalizedProvider(envValue(env, FLAT_ENV_FIELDS.provider)) || "koios",
       fallback: normalizedProvider(envValue(env, FLAT_ENV_FIELDS.providerFallback)) || "blockfrost",
     },
+    reference_scripts: manifestReferenceScriptsFromEnv(env),
     enabled: parseEnabled(envValue(env, FLAT_ENV_FIELDS.enabled)),
+  };
+}
+
+function manifestReferenceScriptsFromEnv(env: EnvMap): Record<string, unknown> | undefined {
+  const baseTxHash = envValue(env, FLAT_ENV_FIELDS.reclaimBaseReferenceScriptTxHash);
+  const baseOutputIndex = parseEnvInteger(env, FLAT_ENV_FIELDS.reclaimBaseReferenceScriptOutputIndex);
+  const baseScriptHash = envValue(env, FLAT_ENV_FIELDS.reclaimBaseReferenceScriptHash);
+  const globalTxHash = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptTxHash);
+  const globalOutputIndex = parseEnvInteger(env, FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptOutputIndex);
+  const globalScriptHash = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptHash);
+  const hasAnyReferenceScriptEnv = [
+    baseTxHash,
+    baseScriptHash,
+    envValue(env, FLAT_ENV_FIELDS.reclaimBaseReferenceScriptOutputIndex),
+    envValue(env, FLAT_ENV_FIELDS.reclaimBaseReferenceScriptHolderAddress),
+    globalTxHash,
+    globalScriptHash,
+    envValue(env, FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptOutputIndex),
+    envValue(env, FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptHolderAddress),
+  ].some(Boolean);
+  if (!hasAnyReferenceScriptEnv) {
+    return undefined;
+  }
+
+  return {
+    reclaim_base: {
+      tx_hash: baseTxHash,
+      output_index: baseOutputIndex,
+      script_hash: baseScriptHash,
+      holder_address: envValue(env, FLAT_ENV_FIELDS.reclaimBaseReferenceScriptHolderAddress),
+    },
+    reclaim_global: {
+      tx_hash: globalTxHash,
+      output_index: globalOutputIndex,
+      script_hash: globalScriptHash,
+      holder_address: envValue(env, FLAT_ENV_FIELDS.reclaimGlobalReferenceScriptHolderAddress),
+    },
   };
 }
 
@@ -645,6 +779,40 @@ function claimCapabilities(manifest: ReclaimDeploymentManifest): ClaimDeployment
     destinationAddressEncoding: manifest.proof.destination_address_encoding,
     indexerStatus: "not_configured",
     singleGlobalCompatible: manifest.reclaim_base.required_global_credential === manifest.reclaim_global.rewarding_credential,
+    transactionBuild: {
+      referenceScriptsConfigured: Boolean(manifest.reference_scripts),
+      missing: manifest.reference_scripts ? [] : ["reference_scripts.reclaim_base", "reference_scripts.reclaim_global"],
+    },
+  };
+}
+
+function optionalReferenceScriptsField(
+  value: unknown,
+  errors: ManifestValidationError[],
+): ReclaimDeploymentManifest["reference_scripts"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const root = objectField(value, "reference_scripts", errors);
+  const reclaimBase = objectField(root.reclaim_base, "reference_scripts.reclaim_base", errors);
+  const reclaimGlobal = objectField(root.reclaim_global, "reference_scripts.reclaim_global", errors);
+  return {
+    reclaim_base: referenceScriptField(reclaimBase, "reference_scripts.reclaim_base", errors),
+    reclaim_global: referenceScriptField(reclaimGlobal, "reference_scripts.reclaim_global", errors),
+  };
+}
+
+function referenceScriptField(
+  value: Record<string, unknown>,
+  field: string,
+  errors: ManifestValidationError[],
+): ReclaimReferenceScriptDeployment {
+  const holderAddress = optionalStringField(value.holder_address, `${field}.holder_address`, errors);
+  return {
+    tx_hash: hexField(value.tx_hash, `${field}.tx_hash`, 64, errors),
+    output_index: nonNegativeIntegerField(value.output_index, `${field}.output_index`, errors),
+    script_hash: hexField(value.script_hash, `${field}.script_hash`, 56, errors),
+    ...(holderAddress ? { holder_address: holderAddress } : {}),
   };
 }
 
@@ -662,6 +830,13 @@ function stringField(value: unknown, field: string, errors: ManifestValidationEr
     return "";
   }
   return value.trim();
+}
+
+function optionalStringField(value: unknown, field: string, errors: ManifestValidationError[]): string | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  return stringField(value, field, errors);
 }
 
 function reclaimNetworkField(value: unknown, field: string, errors: ManifestValidationError[]): ReclaimNetwork {
@@ -819,6 +994,10 @@ function envValue(env: EnvMap, name: string): string {
 
 function isReclaimNetwork(value: string): value is ReclaimNetwork {
   return value === "Mainnet" || value === "Preprod" || value === "Preview";
+}
+
+function formatOptionalNumber(value: number | undefined): string {
+  return value === undefined ? "" : String(value);
 }
 
 function unique(values: string[]): string[] {

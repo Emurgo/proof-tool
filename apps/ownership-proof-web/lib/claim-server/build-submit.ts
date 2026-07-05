@@ -1,6 +1,7 @@
 import { blake2b } from "@noble/hashes/blake2b";
+import * as LucidExports from "@lucid-evolution/lucid";
 import { Constr, Data, type Provider, type UTxO } from "@lucid-evolution/lucid";
-import type { ReclaimDeployment } from "../reclaim/types";
+import type { ReclaimDeployment, ReclaimReferenceScriptDeployment } from "../reclaim/types";
 import {
   DESTINATION_ADDRESS_V1_ENCODING,
   type ClaimBuildRequest,
@@ -26,6 +27,25 @@ const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
 const DESTINATION_PUBLIC_INPUT_ENCODING = "single-credential-destination-v1";
 const CARDANO_PROOF_FORMAT = "groth16-bls12-381-bsb22";
 const PROOF_SCHEMA = "root-ownership-proof-artifact-v1";
+const validatorToScriptHash = (LucidExports as unknown as {
+  validatorToScriptHash: (script: NonNullable<UTxO["scriptRef"]>) => string;
+}).validatorToScriptHash;
+
+type ClaimReferenceScriptRole = "reclaim_base" | "reclaim_global";
+
+type ClaimReferenceScriptInput = {
+  role: ClaimReferenceScriptRole;
+  outRefId: string;
+  holderAddress: string;
+  scriptHash: string;
+  scriptType: NonNullable<UTxO["scriptRef"]>["type"];
+};
+
+type ClaimReferenceScriptsPreflight = {
+  ready: boolean;
+  missing: string[];
+  inputs: ClaimReferenceScriptInput[];
+};
 
 export type ClaimBuildPreflight = {
   deploymentId: string;
@@ -46,6 +66,9 @@ export type ClaimBuildPreflight = {
     proofHex: string;
     publicInputDigestHex: string;
   }>;
+  referenceScripts: ClaimReferenceScriptsPreflight;
+  missingBuildArtifacts: string[];
+  buildReady: boolean;
   reclaimGlobalRedeemerCbor: string;
 };
 
@@ -95,6 +118,7 @@ export async function prepareClaimBuildPreflight(
   const proofs = assertProofArtifacts(raw.proofArtifacts, draft, deployment.verifierVkHash);
   const proofHexes = proofs.map((proof) => proof.proofHex);
   const paramsReferenceInput = await loadParamsReferenceInput(provider, deployment);
+  const referenceScripts = await loadClaimReferenceScripts(provider, deployment);
 
   return {
     deploymentId: deployment.id,
@@ -105,6 +129,9 @@ export async function prepareClaimBuildPreflight(
     orderedPaymentCredentials: draft.orderedPaymentCredentials,
     destinationOutputs: draft.destinationOutputs,
     proofSummaries: proofs,
+    referenceScripts,
+    missingBuildArtifacts: referenceScripts.missing,
+    buildReady: referenceScripts.ready,
     reclaimGlobalRedeemerCbor: makeReclaimGlobalRedeemer(
       0,
       draft.expectedDestinationOutputStartIndex,
@@ -278,6 +305,111 @@ function assertParamsUtxo(utxo: UTxO, deployment: ReclaimDeployment): void {
   }
 }
 
+async function loadClaimReferenceScripts(provider: Provider, deployment: ReclaimDeployment): Promise<ClaimReferenceScriptsPreflight> {
+  const missing = missingReferenceScriptArtifacts(deployment);
+  if (missing.length > 0) {
+    return {
+      ready: false,
+      missing,
+      inputs: [],
+    };
+  }
+
+  const configured = deployment.referenceScripts;
+  if (!configured) {
+    throw new ClaimValidationError("claim_reference_scripts_missing", "Reclaim deployment is missing claim reference script metadata.");
+  }
+  const expected = [
+    {
+      role: "reclaim_base" as const,
+      referenceScript: configured.reclaimBase,
+      expectedScriptHash: deployment.reclaimBaseScriptHash,
+    },
+    {
+      role: "reclaim_global" as const,
+      referenceScript: configured.reclaimGlobal,
+      expectedScriptHash: deployment.reclaimGlobalScriptHash,
+    },
+  ];
+  const utxos = await provider.getUtxosByOutRef(expected.map((entry) => referenceScriptOutRef(entry.referenceScript)));
+  const inputs = expected.map((entry) => {
+    const outRefIdValue = referenceScriptOutRefId(entry.referenceScript);
+    const utxo = utxos.find((candidate) => outRefToString(candidate) === outRefIdValue);
+    if (!utxo) {
+      throw new ClaimValidationError("claim_reference_script_not_found", `${entry.role} reference script UTxO is spent or unavailable.`);
+    }
+    return assertReferenceScriptUtxo(entry.role, utxo, entry.referenceScript, entry.expectedScriptHash);
+  });
+
+  return {
+    ready: true,
+    missing: [],
+    inputs,
+  };
+}
+
+function missingReferenceScriptArtifacts(deployment: ReclaimDeployment): string[] {
+  const missing: string[] = [];
+  if (!deployment.referenceScripts?.reclaimBase) {
+    missing.push("reference_scripts.reclaim_base");
+  }
+  if (!deployment.referenceScripts?.reclaimGlobal) {
+    missing.push("reference_scripts.reclaim_global");
+  }
+  return missing;
+}
+
+function referenceScriptOutRef(referenceScript: ReclaimReferenceScriptDeployment) {
+  return {
+    txHash: referenceScript.tx_hash,
+    outputIndex: referenceScript.output_index,
+  };
+}
+
+function referenceScriptOutRefId(referenceScript: ReclaimReferenceScriptDeployment): string {
+  return outRefToString(referenceScriptOutRef(referenceScript));
+}
+
+function assertReferenceScriptUtxo(
+  role: ClaimReferenceScriptRole,
+  utxo: UTxO,
+  referenceScript: ReclaimReferenceScriptDeployment,
+  expectedScriptHash: string,
+): ClaimReferenceScriptInput {
+  const outRefIdValue = referenceScriptOutRefId(referenceScript);
+  if (referenceScript.holder_address && utxo.address !== referenceScript.holder_address) {
+    throw new ClaimValidationError("claim_reference_script_wrong_address", `${role} reference script UTxO is not at the configured holder address.`);
+  }
+  if (referenceScript.script_hash !== expectedScriptHash) {
+    throw new ClaimValidationError("claim_reference_script_hash_mismatch", `${role} reference script hash does not match deployment script hash.`);
+  }
+  if (!utxo.scriptRef) {
+    throw new ClaimValidationError("claim_reference_script_missing_script_ref", `${role} reference script UTxO is missing a reference script.`);
+  }
+  if (utxo.scriptRef.type !== "PlutusV3") {
+    throw new ClaimValidationError("claim_reference_script_wrong_type", `${role} reference script must be PlutusV3.`);
+  }
+  const actualScriptHash = referenceScriptHash(role, utxo.scriptRef);
+  if (actualScriptHash !== referenceScript.script_hash) {
+    throw new ClaimValidationError("claim_reference_script_hash_mismatch", `${role} reference script hash does not match the scriptRef bytes.`);
+  }
+  return {
+    role,
+    outRefId: outRefIdValue,
+    holderAddress: utxo.address,
+    scriptHash: actualScriptHash,
+    scriptType: utxo.scriptRef.type,
+  };
+}
+
+function referenceScriptHash(role: ClaimReferenceScriptRole, scriptRef: NonNullable<UTxO["scriptRef"]>): string {
+  try {
+    return validatorToScriptHash(scriptRef).toLowerCase();
+  } catch {
+    throw new ClaimValidationError("claim_reference_script_invalid", `${role} reference script bytes are invalid.`);
+  }
+}
+
 function outRefId(value: string | ClaimOutRef): string {
   if (typeof value === "string") {
     return value;
@@ -292,11 +424,15 @@ function artifactOutRefId(value: unknown, field: string): string {
 export class UnsupportedClaimBuildError extends Error {
   readonly code = "claim_build_unsupported";
   readonly preflight?: ClaimBuildPreflight;
+  readonly reason: string;
+  readonly missingBuildArtifacts: string[];
 
   constructor(preflight?: ClaimBuildPreflight) {
     super("Live claim transaction construction is not enabled for this deployment.");
     this.name = "UnsupportedClaimBuildError";
     this.preflight = preflight;
+    this.reason = preflight?.buildReady ? "transaction_builder_not_implemented" : "build_prerequisites_missing";
+    this.missingBuildArtifacts = preflight?.missingBuildArtifacts ?? [];
   }
 }
 

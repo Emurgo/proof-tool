@@ -32,6 +32,18 @@ describe("reclaim deployment manifest validation", () => {
     expect(result.manifest.deployment_id).toBe(`preprod:${hash56("a")}:abcdef1234567890`);
   });
 
+  it("accepts optional reference script deployment metadata", () => {
+    const manifest = withReferenceScripts(validManifest());
+    const result = validateReclaimDeploymentManifest(manifest);
+
+    expect(result.available).toBe(true);
+    if (!result.available) {
+      throw new Error("expected manifest to validate");
+    }
+    expect(result.manifest.reference_scripts?.reclaim_base.script_hash).toBe(manifest.reclaim_base.script_hash);
+    expect(result.manifest.reference_scripts?.reclaim_global.script_hash).toBe(manifest.reclaim_global.script_hash);
+  });
+
   it("disables readiness for the wrong network id", () => {
     const result = validateReclaimDeploymentManifest({
       ...validManifest(),
@@ -82,6 +94,26 @@ describe("reclaim deployment manifest validation", () => {
     expect(errorFields(result)).toContain("reclaim_global.script_hash");
   });
 
+  it("disables readiness for reference script hash mismatches", () => {
+    const manifest = withReferenceScripts(validManifest());
+    manifest.reference_scripts!.reclaim_global.script_hash = hash56("9");
+
+    const result = validateReclaimDeploymentManifest(manifest);
+
+    expect(errorCodes(result)).toContain("reference_script_hash_mismatch");
+    expect(errorFields(result)).toContain("reference_scripts.reclaim_global.script_hash");
+  });
+
+  it("disables readiness when a reference script reuses the parameter UTxO outref", () => {
+    const manifest = withReferenceScripts(validManifest());
+    manifest.reference_scripts!.reclaim_base.tx_hash = manifest.params_utxo.tx_hash;
+    manifest.reference_scripts!.reclaim_base.output_index = manifest.params_utxo.output_index;
+
+    const result = validateReclaimDeploymentManifest(manifest);
+
+    expect(errorCodes(result)).toContain("reference_script_outref_conflict");
+  });
+
   it("returns a disabled state when no manifest source is configured", () => {
     const result = loadReclaimDeployment({ env: {} });
 
@@ -103,6 +135,18 @@ describe("reclaim deployment manifest validation", () => {
     }
     expect(result.deployment.id).toBe(`preprod:${hash56("a")}:abcdef1234567890`);
     expect(result.deployment.paramsUtxo?.tx_hash).toBe(hash64("f"));
+  });
+
+  it("loads optional reference script deployment metadata from flat env", () => {
+    const manifest = withReferenceScripts(validManifest());
+    const result = loadReclaimDeployment({ env: envFromManifest(manifest) });
+
+    expect(result.available).toBe(true);
+    if (!result.available) {
+      throw new Error("expected flat env manifest to validate");
+    }
+    expect(result.deployment.referenceScripts?.reclaimBase.tx_hash).toBe(hash64("1"));
+    expect(result.deployment.referenceScripts?.reclaimGlobal.tx_hash).toBe(hash64("2"));
   });
 
   it("disables readiness when RECLAIM env fields disagree with the JSON manifest", () => {
@@ -136,6 +180,23 @@ describe("reclaim deployment manifest validation", () => {
       destinationAddressEncoding: "destination-address-v1",
       indexerStatus: "not_configured",
       singleGlobalCompatible: true,
+      transactionBuild: {
+        referenceScriptsConfigured: false,
+        missing: ["reference_scripts.reclaim_base", "reference_scripts.reclaim_global"],
+      },
+    });
+  });
+
+  it("reports transaction-build reference script readiness when configured", () => {
+    const result = loadClaimDeployment({ env: envFromManifest(withReferenceScripts(validManifest())) });
+
+    expect(result.available).toBe(true);
+    if (!result.available) {
+      throw new Error("expected claim deployment to validate");
+    }
+    expect(result.capabilities.transactionBuild).toEqual({
+      referenceScriptsConfigured: true,
+      missing: [],
     });
   });
 });
@@ -195,8 +256,28 @@ function validManifest(): ReclaimDeploymentManifest {
   };
 }
 
-function envFromManifest(manifest: ReclaimDeploymentManifest): Record<string, string> {
+function withReferenceScripts(manifest: ReclaimDeploymentManifest): ReclaimDeploymentManifest {
   return {
+    ...manifest,
+    reference_scripts: {
+      reclaim_base: {
+        tx_hash: hash64("1"),
+        output_index: 0,
+        script_hash: manifest.reclaim_base.script_hash,
+        holder_address: "addr_test1wbaserefholder00000000000000000000000000000000000000",
+      },
+      reclaim_global: {
+        tx_hash: hash64("2"),
+        output_index: 0,
+        script_hash: manifest.reclaim_global.script_hash,
+        holder_address: "addr_test1wglobalrefholder000000000000000000000000000000000000",
+      },
+    },
+  };
+}
+
+function envFromManifest(manifest: ReclaimDeploymentManifest): Record<string, string> {
+  const env = {
     RECLAIM_DEPLOYMENT_ID: manifest.deployment_id,
     RECLAIM_NETWORK: manifest.network,
     RECLAIM_NETWORK_ID: String(manifest.network_id),
@@ -228,6 +309,20 @@ function envFromManifest(manifest: ReclaimDeploymentManifest): Record<string, st
     RECLAIM_PROVIDER: manifest.provider.primary,
     RECLAIM_PROVIDER_FALLBACK: manifest.provider.fallback,
   };
+  if (manifest.reference_scripts) {
+    return {
+      ...env,
+      RECLAIM_BASE_REFERENCE_SCRIPT_TX_HASH: manifest.reference_scripts.reclaim_base.tx_hash,
+      RECLAIM_BASE_REFERENCE_SCRIPT_OUTPUT_INDEX: String(manifest.reference_scripts.reclaim_base.output_index),
+      RECLAIM_BASE_REFERENCE_SCRIPT_HASH: manifest.reference_scripts.reclaim_base.script_hash,
+      RECLAIM_BASE_REFERENCE_SCRIPT_HOLDER_ADDRESS: manifest.reference_scripts.reclaim_base.holder_address ?? "",
+      RECLAIM_GLOBAL_REFERENCE_SCRIPT_TX_HASH: manifest.reference_scripts.reclaim_global.tx_hash,
+      RECLAIM_GLOBAL_REFERENCE_SCRIPT_OUTPUT_INDEX: String(manifest.reference_scripts.reclaim_global.output_index),
+      RECLAIM_GLOBAL_REFERENCE_SCRIPT_HASH: manifest.reference_scripts.reclaim_global.script_hash,
+      RECLAIM_GLOBAL_REFERENCE_SCRIPT_HOLDER_ADDRESS: manifest.reference_scripts.reclaim_global.holder_address ?? "",
+    };
+  }
+  return env;
 }
 
 function errorCodes(result: { available: boolean; errors: Array<{ code: string }> }): string[] {
