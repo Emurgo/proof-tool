@@ -3,7 +3,7 @@ import type { ClaimBuildRequest } from "../../../lib/claim/types";
 import { ClaimValidationError } from "../../../lib/claim/validation";
 import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";
 import { ReclaimValidationError } from "../../../lib/reclaim/validation";
-import { UnsupportedClaimBuildError, validateClaimBuildRequest } from "../../../lib/claim-server/build-submit";
+import { UnsupportedClaimBuildError, buildClaimTx } from "../../../lib/claim-server/build-submit";
 
 export const runtime = "nodejs";
 
@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = (await request.json()) as ClaimBuildRequest;
-    await validateClaimBuildRequest(providerConfig.provider, deploymentConfig.deployment, body);
+    const response = await buildClaimTx(providerConfig.provider, deploymentConfig.deployment, body);
+    return NextResponse.json(response);
   } catch (error) {
     return errorResponse(error);
   }

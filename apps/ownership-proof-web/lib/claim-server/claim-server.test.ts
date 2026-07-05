@@ -20,6 +20,7 @@ import { getClaimProgress } from "./progress";
 import {
   UnsupportedClaimBuildError,
   UnsupportedClaimSubmitError,
+  buildClaimTx,
   validateClaimBuildRequest,
   validateClaimSubmitRequest,
 } from "./build-submit";
@@ -92,6 +93,26 @@ describe("claim draft server helpers", () => {
       destinationAddressV1(SAFE_ADDRESS, 0),
     ]);
     expect(draft.buildSupported).toBe(false);
+  });
+
+  it("reports build support when reference script prerequisites are configured", async () => {
+    const deployment = deploymentWithReferenceScripts();
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+    });
+
+    const draft = await createClaimDraft(provider, deployment, {
+      deploymentId: deployment.id,
+      networkId: 0,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      selectedOutrefs: [outRefToString(selected)],
+    });
+
+    expect(draft.buildSupported).toBe(true);
   });
 
   it("requires explicit nextBatch for automatic public selection", async () => {
@@ -255,6 +276,32 @@ describe("claim draft server helpers", () => {
 });
 
 describe("claim build and submit fail closed", () => {
+  it("route-facing build refuses deployments that are missing reference scripts", async () => {
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+    });
+    const draft = await selectedDraft(provider, selected);
+
+    await expect(
+      buildClaimTx(provider, DEPLOYMENT, {
+        deploymentId: DEPLOYMENT.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(selected)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({
+      code: "claim_build_unsupported",
+      reason: "build_prerequisites_missing",
+      missingBuildArtifacts: ["reference_scripts.reclaim_base", "reference_scripts.reclaim_global"],
+    });
+  });
+
   it("requeries draft material, validates proofs, and refuses unsupported live build", async () => {
     const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
     const provider = providerWith({

@@ -127,7 +127,7 @@ export async function createClaimDraft(
     expectedDestinationOutputStartIndex: 0,
     safeWallet,
     reductions,
-    buildSupported: false,
+    buildSupported: Boolean(deployment.referenceScripts?.reclaimBase && deployment.referenceScripts.reclaimGlobal),
   };
 }
 

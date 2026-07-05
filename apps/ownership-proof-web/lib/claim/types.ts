@@ -142,7 +142,7 @@ export type ClaimDraftResponse = {
     utxoCount: number;
   };
   reductions: string[];
-  buildSupported: false;
+  buildSupported: boolean;
 };
 
 export type ClaimBuildRequest = {
@@ -153,6 +153,53 @@ export type ClaimBuildRequest = {
   safeWalletChangeAddress?: string;
   safeWalletAddresses?: string[];
   proofArtifacts?: unknown[];
+};
+
+export type ClaimBuildReview = {
+  deploymentId: string;
+  draftId: string;
+  selectedOutrefs: string[];
+  transactionInputOrder: string[];
+  destinationOutputStartIndex: number;
+  destinationOutputs: ClaimDraftDestinationOutput[];
+  paramsReferenceInput: {
+    outRefId: string;
+    holderAddress: string;
+    datumCbor: string;
+  };
+  referenceScriptInputs: Array<{
+    role: "reclaim_base" | "reclaim_global";
+    outRefId: string;
+    holderAddress: string;
+    scriptHash: string;
+    scriptType: string;
+  }>;
+  proofDigests: Array<{
+    outRefId: string;
+    targetCredential: string;
+    destinationAddress: string;
+    publicInputDigestHex: string;
+  }>;
+};
+
+export type ClaimBuildResponse = {
+  txCbor: string;
+  txHash: string;
+  review: ClaimBuildReview;
+  reviewHash: string;
+  reviewToken: string;
+  evaluation: {
+    redeemers: Array<{
+      tag: string;
+      index: number;
+      memory: number;
+      steps: number;
+    }>;
+    totalMemory: string;
+    totalSteps: string;
+    memoryPercent: number | null;
+    cpuPercent: number | null;
+  };
 };
 
 export type ClaimSubmitRequest = {
