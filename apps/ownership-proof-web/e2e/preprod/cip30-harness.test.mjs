@@ -94,6 +94,25 @@ describe("preprod CIP-30 wallet harness", () => {
     expect(harness.roleState("safe_claim_destination").canSign).toBe(true);
   });
 
+  it("resolves repo-relative wallet paths when the runner cwd is the web app", async () => {
+    const repo = tempDir();
+    const appDir = path.join(repo, "apps", "ownership-proof-web");
+    const walletPath = path.join(repo, "deployments", "reclaim", "preprod", "test-wallets.local.json");
+    writeFile(walletPath, JSON.stringify(validWalletFile()));
+
+    const harness = await loadCip30HarnessFromEnv({
+      env: {
+        RECLAIM_E2E_LIVE_PREPROD: "1",
+        PREPROD_TEST_WALLETS_FILE: "deployments/reclaim/preprod/test-wallets.local.json",
+      },
+      provider: fakeProvider(),
+      cwd: appDir,
+      repoRoot: repo,
+    });
+
+    expect(harness.roles).toContain("deployer");
+  });
+
   it("installs role-scoped providers through a Playwright page bridge", async () => {
     const harness = await createCip30WalletHarness({
       provider: fakeProvider(),

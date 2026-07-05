@@ -8,6 +8,7 @@ import {
   redactSensitiveValue,
   runPreprodPreflight,
 } from "./preflight.mjs";
+import { preparePreprodAppTarget } from "./app-server.mjs";
 import { loadCip30HarnessFromEnv } from "./cip30-harness.mjs";
 
 export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
@@ -29,6 +30,7 @@ export async function runPreprodE2E(options = {}) {
   const mkdir = options.mkdir ?? mkdirSync;
   const writeFile = options.writeFile ?? writeFileSync;
   const walletHarnessLoader = options.walletHarnessLoader ?? loadCip30HarnessFromEnv;
+  const appTargetLoader = options.appTargetLoader ?? preparePreprodAppTarget;
   const outputRoot = options.outputRoot ?? env.RECLAIM_E2E_OUTPUT_DIR ?? "output/preprod-e2e";
   const preflight = await runPreprodPreflight(options.preflightOptions ?? options);
   if (!preflight.ok) {
@@ -124,6 +126,51 @@ export async function runPreprodE2E(options = {}) {
   );
   artifacts.push(walletHarnessPath);
 
+  let appTarget;
+  try {
+    appTarget = await appTargetLoader({
+      ...(options.appTargetOptions ?? {}),
+      env,
+      cwd: options.cwd ?? process.cwd(),
+      repoRoot: options.repoRoot,
+      outputDir,
+    });
+  } catch (error) {
+    const result = {
+      ok: false,
+      code: "app_server_failed",
+      preflight,
+      outputDir,
+      artifacts,
+      error: sanitizeError(error),
+    };
+    return {
+      ...result,
+      report: formatRunnerReport(result),
+    };
+  }
+
+  const appTargetPath = path.join(outputDir, "app-target.json");
+  writeFile(
+    appTargetPath,
+    `${JSON.stringify(
+      {
+        schema: "proof-tool-preprod-app-target-v1",
+        baseUrl: appTarget.baseUrl,
+        external: appTarget.external,
+        command: appTarget.command,
+        args: appTarget.args,
+        appDir: appTarget.appDir,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  artifacts.push(appTargetPath);
+
+  await appTarget.stop?.();
+
   return {
     ok: false,
     code: "live_browser_flow_not_implemented",
@@ -156,6 +203,11 @@ export function formatRunnerReport(result) {
     lines.push(`Pending stages: ${PREPROD_E2E_STAGES.join(", ")}.`);
   } else if (result.code === "cip30_harness_failed") {
     lines.push("CIP-30 preprod wallet harness failed closed before browser automation.");
+    if (result.error) {
+      lines.push(`- ${result.error.code}: ${result.error.message}`);
+    }
+  } else if (result.code === "app_server_failed") {
+    lines.push("Preprod app target failed closed before browser automation.");
     if (result.error) {
       lines.push(`- ${result.error.code}: ${result.error.message}`);
     }

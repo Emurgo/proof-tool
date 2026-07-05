@@ -88,18 +88,22 @@ describe("Phase 9A preprod E2E runner", () => {
       now: () => new Date("2026-07-05T13:00:00.000Z"),
       execFile: fakeGit({ commit, status: "" }),
       walletHarnessLoader: async () => fakeWalletHarness(),
+      appTargetLoader: async () => fakeAppTarget(),
     });
 
     expect(result.ok).toBe(false);
     expect(result.code).toBe("live_browser_flow_not_implemented");
     expect(result.report).toContain("Pending stages");
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json", "app-target.json"]);
     const manifest = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
     expect(manifest.transactionSubmissionApproved).toBe(true);
     expect(manifest.stages.every((stage) => stage.status === "pending")).toBe(true);
     const walletHarness = JSON.parse(readFileSync(result.artifacts[1], "utf8"));
     expect(walletHarness.schema).toBe("proof-tool-preprod-cip30-harness-summary-v1");
     expect(JSON.stringify(walletHarness)).not.toContain("abandon");
+    const appTarget = JSON.parse(readFileSync(result.artifacts[2], "utf8"));
+    expect(appTarget.schema).toBe("proof-tool-preprod-app-target-v1");
+    expect(appTarget.baseUrl).toBe("http://127.0.0.1:3917");
   });
 
   it("fails closed when the approved CIP-30 harness cannot be initialized", async () => {
@@ -132,6 +136,39 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.code).toBe("cip30_harness_failed");
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json"]);
     expect(result.report).toContain("wallet_harness_test_failure");
+  });
+
+  it("fails closed when the app target cannot be prepared", async () => {
+    const repo = tempDir();
+    const commit = "0123456789abcdef0123456789abcdef01234567";
+    const walletPath = path.join(repo, "wallets.local.json");
+    writeFile(walletPath, JSON.stringify(validWalletFile()));
+
+    const result = await runPreprodE2E({
+      env: {
+        RECLAIM_E2E_LIVE_PREPROD: "1",
+        [TRANSACTION_APPROVAL_ENV]: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
+        PREPROD_TEST_WALLETS_FILE: walletPath,
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
+      },
+      cwd: repo,
+      repoRoot: repo,
+      outputRoot: "output/preprod-e2e",
+      now: () => new Date("2026-07-05T14:00:00.000Z"),
+      execFile: fakeGit({ commit, status: "" }),
+      walletHarnessLoader: async () => fakeWalletHarness(),
+      appTargetLoader: async () => {
+        const error = new Error("app did not become ready");
+        error.code = "app_target_test_failure";
+        throw error;
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("app_server_failed");
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json"]);
+    expect(result.report).toContain("app_target_test_failure");
   });
 });
 
@@ -229,5 +266,16 @@ function fakeWalletHarness() {
         canSign: false,
       },
     },
+  };
+}
+
+function fakeAppTarget() {
+  return {
+    baseUrl: "http://127.0.0.1:3917",
+    external: false,
+    command: "pnpm",
+    args: ["dev"],
+    appDir: "/tmp/app",
+    async stop() {},
   };
 }

@@ -202,9 +202,9 @@ function loadWalletFileFromEnv(env, options) {
   if (!walletPath) {
     throw new Cip30HarnessError("wallet_file_env_missing", "PREPROD_TEST_WALLETS_FILE is required for the CIP-30 harness.");
   }
-  const resolvedPath = resolveLocalPath(walletPath, options);
   const exists = options.fileExists ?? existsSync;
   const readTextFile = options.readTextFile ?? ((filePath) => readFileSync(filePath, "utf8"));
+  const resolvedPath = resolveExistingLocalPath(walletPath, options, exists);
   if (!exists(resolvedPath)) {
     throw new Cip30HarnessError("wallet_file_missing", "PREPROD_TEST_WALLETS_FILE does not exist.");
   }
@@ -215,12 +215,16 @@ function loadWalletFileFromEnv(env, options) {
   }
 }
 
-function resolveLocalPath(configuredPath, options) {
+function resolveExistingLocalPath(configuredPath, options, exists) {
   if (path.isAbsolute(configuredPath)) {
     return configuredPath;
   }
-  const base = options.cwd ?? options.repoRoot ?? process.cwd();
-  return path.resolve(base, configuredPath);
+  const candidates = [
+    options.cwd ? path.resolve(options.cwd, configuredPath) : null,
+    options.repoRoot ? path.resolve(options.repoRoot, configuredPath) : null,
+    path.resolve(process.cwd(), configuredPath),
+  ].filter(Boolean);
+  return candidates.find((candidate) => exists(candidate)) ?? candidates[0];
 }
 
 function walletRoleConfig(walletFile, role) {
