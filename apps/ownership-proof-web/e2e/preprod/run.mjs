@@ -12,6 +12,7 @@ import { preparePreprodAppTarget } from "./app-server.mjs";
 import { runPreprodBrowserBootstrap } from "./browser-flow.mjs";
 import { loadCip30HarnessFromEnv } from "./cip30-harness.mjs";
 import { runDeployOrVerifyPreprodManifest } from "./deployment-stage.mjs";
+import { validatePreprodHelperTarget, writePreprodHelperTargetArtifact } from "./helper-target.mjs";
 import { validatePreprodLiveConfig, writePreprodLiveConfigArtifact } from "./live-config.mjs";
 
 export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
@@ -34,6 +35,8 @@ export async function runPreprodE2E(options = {}) {
   const writeFile = options.writeFile ?? writeFileSync;
   const liveConfigValidator = options.liveConfigValidator ?? validatePreprodLiveConfig;
   const liveConfigArtifactWriter = options.liveConfigArtifactWriter ?? writePreprodLiveConfigArtifact;
+  const helperTargetValidator = options.helperTargetValidator ?? validatePreprodHelperTarget;
+  const helperTargetArtifactWriter = options.helperTargetArtifactWriter ?? writePreprodHelperTargetArtifact;
   const walletHarnessLoader = options.walletHarnessLoader ?? loadCip30HarnessFromEnv;
   const appTargetLoader = options.appTargetLoader ?? preparePreprodAppTarget;
   const deploymentStageRunner = options.deploymentStageRunner ?? runDeployOrVerifyPreprodManifest;
@@ -102,6 +105,25 @@ export async function runPreprodE2E(options = {}) {
       outputDir,
       artifacts,
       error: sanitizeError(error),
+    };
+    return {
+      ...result,
+      report: formatRunnerReport(result),
+    };
+  }
+
+  let helperTarget;
+  try {
+    helperTarget = helperTargetValidator(env);
+    artifacts.push(helperTargetArtifactWriter(helperTarget, outputDir, { writeFile }));
+  } catch (error) {
+    const result = {
+      ok: false,
+      code: "helper_target_failed",
+      preflight,
+      outputDir,
+      artifacts,
+      error: sanitizeError(error, "helper_target_error", "Helper target validation failed."),
     };
     return {
       ...result,
@@ -225,6 +247,7 @@ export async function runPreprodE2E(options = {}) {
       env,
       appTarget,
       walletHarness,
+      helperTarget,
       outputDir,
     });
     if (Array.isArray(browserBootstrap?.artifacts)) {
@@ -287,6 +310,11 @@ export function formatRunnerReport(result) {
     if (result.error) {
       lines.push(`- ${result.error.code}: ${result.error.message}`);
     }
+  } else if (result.code === "helper_target_failed") {
+    lines.push("Preprod helper target validation failed closed before wallet or browser work.");
+    if (result.error) {
+      lines.push(`- ${result.error.code}: ${result.error.message}`);
+    }
   } else if (result.code === "app_server_failed") {
     lines.push("Preprod app target failed closed before browser automation.");
     if (result.error) {
@@ -312,13 +340,13 @@ function makeRunId(commit, now) {
   return `${timestamp}-${shortCommit}`;
 }
 
-function sanitizeError(error) {
+function sanitizeError(error, fallbackCode = "cip30_harness_error", fallbackMessage = "CIP-30 harness setup failed.") {
   if (!error || typeof error !== "object") {
-    return { code: "unknown_error", message: "Unknown CIP-30 harness error." };
+    return { code: "unknown_error", message: "Unknown preprod runner error." };
   }
   return {
-    code: typeof error.code === "string" ? error.code : "cip30_harness_error",
-    message: typeof error.message === "string" ? error.message : "CIP-30 harness setup failed.",
+    code: typeof error.code === "string" ? error.code : fallbackCode,
+    message: typeof error.message === "string" ? error.message : fallbackMessage,
   };
 }
 

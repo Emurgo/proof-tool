@@ -6,6 +6,10 @@ import { PREPROD_E2E_STAGES, TRANSACTION_APPROVAL_ENV, runPreprodE2E } from "./r
 
 const tempDirs = [];
 const nativeUnit = `${"a".repeat(56)}4e4654`;
+const helperEnv = {
+  RECLAIM_E2E_HELPER_URL: "http://127.0.0.1:49152",
+  RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
+};
 
 afterEach(() => {
   while (tempDirs.length > 0) {
@@ -49,6 +53,7 @@ describe("Phase 9A preprod E2E runner", () => {
         PREPROD_TEST_WALLETS_FILE: walletPath,
         RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
         RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        ...helperEnv,
       },
       cwd: repo,
       repoRoot: repo,
@@ -84,6 +89,7 @@ describe("Phase 9A preprod E2E runner", () => {
         PREPROD_TEST_WALLETS_FILE: walletPath,
         RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
         RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        ...helperEnv,
       },
       cwd: repo,
       repoRoot: repo,
@@ -102,6 +108,7 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
       "run-manifest.json",
       "live-config.json",
+      "helper-target.json",
       "wallet-harness.json",
       "app-target.json",
       "deploy-or-verify-preprod-manifest.json",
@@ -115,15 +122,23 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(manifest.stages.every((stage) => stage.status === "pending")).toBe(true);
     const liveConfig = JSON.parse(readFileSync(result.artifacts[1], "utf8"));
     expect(liveConfig.schema).toBe("proof-tool-preprod-live-config-v1");
-    const walletHarness = JSON.parse(readFileSync(result.artifacts[2], "utf8"));
+    const helperTarget = JSON.parse(readFileSync(result.artifacts[2], "utf8"));
+    expect(helperTarget).toEqual({
+      schema: "proof-tool-preprod-helper-target-v1",
+      helperUrl: "http://127.0.0.1:49152",
+      tokenRequired: true,
+      token: "[redacted]",
+    });
+    expect(JSON.stringify(helperTarget)).not.toContain("pair-secret");
+    const walletHarness = JSON.parse(readFileSync(result.artifacts[3], "utf8"));
     expect(walletHarness.schema).toBe("proof-tool-preprod-cip30-harness-summary-v1");
     expect(JSON.stringify(walletHarness)).not.toContain("abandon");
-    const appTarget = JSON.parse(readFileSync(result.artifacts[3], "utf8"));
+    const appTarget = JSON.parse(readFileSync(result.artifacts[4], "utf8"));
     expect(appTarget.schema).toBe("proof-tool-preprod-app-target-v1");
     expect(appTarget.baseUrl).toBe("http://127.0.0.1:3917");
-    const deploymentStage = JSON.parse(readFileSync(result.artifacts[4], "utf8"));
+    const deploymentStage = JSON.parse(readFileSync(result.artifacts[5], "utf8"));
     expect(deploymentStage.schema).toBe("proof-tool-preprod-deployment-stage-v1");
-    const browserBootstrap = JSON.parse(readFileSync(result.artifacts[5], "utf8"));
+    const browserBootstrap = JSON.parse(readFileSync(result.artifacts[6], "utf8"));
     expect(browserBootstrap.schema).toBe("proof-tool-preprod-browser-bootstrap-v1");
   });
 
@@ -157,9 +172,9 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.report).toContain("RECLAIM_E2E_NATIVE_ASSET_UNIT");
   });
 
-  it("fails closed when the approved CIP-30 harness cannot be initialized", async () => {
+  it("fails closed before wallet loading when the helper target is missing", async () => {
     const repo = tempDir();
-    const commit = "fedcba1234567890abcdef1234567890abcdef12";
+    const commit = "cafe76543210abcdef1234567890abcdef123456";
     const walletPath = path.join(repo, "wallets.local.json");
     writeFile(walletPath, JSON.stringify(validWalletFile()));
 
@@ -175,6 +190,38 @@ describe("Phase 9A preprod E2E runner", () => {
       cwd: repo,
       repoRoot: repo,
       outputRoot: "output/preprod-e2e",
+      now: () => new Date("2026-07-05T13:20:00.000Z"),
+      execFile: fakeGit({ commit, status: "" }),
+      walletHarnessLoader() {
+        throw new Error("must not load wallets before helper target passes");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("helper_target_failed");
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json"]);
+    expect(result.report).toContain("RECLAIM_E2E_HELPER_URL");
+  });
+
+  it("fails closed when the approved CIP-30 harness cannot be initialized", async () => {
+    const repo = tempDir();
+    const commit = "fedcba1234567890abcdef1234567890abcdef12";
+    const walletPath = path.join(repo, "wallets.local.json");
+    writeFile(walletPath, JSON.stringify(validWalletFile()));
+
+    const result = await runPreprodE2E({
+      env: {
+        RECLAIM_E2E_LIVE_PREPROD: "1",
+        [TRANSACTION_APPROVAL_ENV]: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
+        PREPROD_TEST_WALLETS_FILE: walletPath,
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
+        RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        ...helperEnv,
+      },
+      cwd: repo,
+      repoRoot: repo,
+      outputRoot: "output/preprod-e2e",
       now: () => new Date("2026-07-05T13:30:00.000Z"),
       execFile: fakeGit({ commit, status: "" }),
       walletHarnessLoader: async () => {
@@ -186,7 +233,7 @@ describe("Phase 9A preprod E2E runner", () => {
 
     expect(result.ok).toBe(false);
     expect(result.code).toBe("cip30_harness_failed");
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json", "helper-target.json"]);
     expect(result.report).toContain("wallet_harness_test_failure");
   });
 
@@ -204,6 +251,7 @@ describe("Phase 9A preprod E2E runner", () => {
         PREPROD_TEST_WALLETS_FILE: walletPath,
         RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
         RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        ...helperEnv,
       },
       cwd: repo,
       repoRoot: repo,
@@ -220,7 +268,7 @@ describe("Phase 9A preprod E2E runner", () => {
 
     expect(result.ok).toBe(false);
     expect(result.code).toBe("app_server_failed");
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json", "wallet-harness.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json", "helper-target.json", "wallet-harness.json"]);
     expect(result.report).toContain("app_target_test_failure");
   });
 
@@ -239,6 +287,7 @@ describe("Phase 9A preprod E2E runner", () => {
         PREPROD_TEST_WALLETS_FILE: walletPath,
         RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
         RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        ...helperEnv,
       },
       cwd: repo,
       repoRoot: repo,
@@ -257,7 +306,7 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.ok).toBe(false);
     expect(result.code).toBe("deployment_stage_failed");
     expect(appTarget.stopCalls).toBe(1);
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json", "wallet-harness.json", "app-target.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json", "helper-target.json", "wallet-harness.json", "app-target.json"]);
     expect(result.report).toContain("deployment_stage_test_failure");
   });
 
@@ -276,6 +325,7 @@ describe("Phase 9A preprod E2E runner", () => {
         PREPROD_TEST_WALLETS_FILE: walletPath,
         RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
         RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        ...helperEnv,
       },
       cwd: repo,
       repoRoot: repo,
@@ -298,6 +348,7 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
       "run-manifest.json",
       "live-config.json",
+      "helper-target.json",
       "wallet-harness.json",
       "app-target.json",
       "deploy-or-verify-preprod-manifest.json",

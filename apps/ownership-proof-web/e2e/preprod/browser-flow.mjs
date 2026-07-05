@@ -22,6 +22,7 @@ export async function runPreprodBrowserBootstrap(options = {}) {
   const outputDir = requireOption(options.outputDir, "outputDir");
   const mkdir = options.mkdir ?? mkdirSync;
   const writeFile = options.writeFile ?? writeFileSync;
+  const helperTarget = options.helperTarget ?? null;
   const browserLauncher = options.browserLauncher ?? chromium;
   const fundingStageRunner = options.fundingStageRunner ?? runAdaOnlyFundingStage;
   const nativeFundingStageRunner = options.nativeFundingStageRunner ?? runNativeAssetFundingStage;
@@ -71,6 +72,12 @@ export async function runPreprodBrowserBootstrap(options = {}) {
       baseUrl: appTarget.baseUrl,
       url: reclaimUrl,
       headed: (env[HEADED_ENV] ?? "").trim() === "1",
+      helperTarget: helperTarget
+        ? {
+            helperUrl: helperTarget.helperUrl,
+            tokenRequired: true,
+          }
+        : null,
       walletRoles: walletProbe,
       screenshots: [path.relative(outputDir, reclaimScreenshotPath)],
     };
@@ -103,6 +110,7 @@ export async function runPreprodBrowserBootstrap(options = {}) {
       page,
       walletHarness,
       appTarget,
+      helperTarget,
       outputDir,
     });
     if (Array.isArray(claimDiscoveryStage?.artifacts)) {
