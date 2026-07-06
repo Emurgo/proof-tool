@@ -92,6 +92,21 @@ describe("ADA-only preprod funding stage", () => {
       code: "compromised_credential_missing",
     });
   });
+
+  it("surfaces funding submit failures from the page instead of waiting only for success", async () => {
+    await expect(
+      runAdaOnlyFundingStage({
+        page: fakeFundingPage({
+          submitFailure: "Provider rejected the transaction.",
+        }),
+        walletHarness: fakeWalletHarness(),
+        outputDir: tempDir(),
+      }),
+    ).rejects.toMatchObject({
+      code: "funding_submit_failed",
+      message: "Provider rejected the transaction.",
+    });
+  });
 });
 
 describe("native-asset preprod funding stage", () => {
@@ -194,7 +209,7 @@ function fakeWalletHarness() {
   };
 }
 
-function fakeFundingPage() {
+function fakeFundingPage(options = {}) {
   const calls = [];
   return {
     calls,
@@ -217,11 +232,16 @@ function fakeFundingPage() {
     },
     getByText(text) {
       return {
-        waitFor: vi.fn(async () => calls.push(["waitForText", text instanceof RegExp ? String(text) : text])),
+        waitFor: vi.fn(async () => {
+          if (text === "Transaction submitted" && options.submitFailure) {
+            return new Promise(() => undefined);
+          }
+          calls.push(["waitForText", text instanceof RegExp ? String(text) : text]);
+        }),
       };
     },
     locator(selector) {
-      return fakeLocator(selector, calls);
+      return fakeLocator(selector, calls, options);
     },
     screenshot: vi.fn(async ({ path: screenshotPath }) => {
       mkdirSync(path.dirname(screenshotPath), { recursive: true });
@@ -231,7 +251,7 @@ function fakeFundingPage() {
   };
 }
 
-function fakeLocator(selector, calls) {
+function fakeLocator(selector, calls, options) {
   if (selector === 'section[aria-labelledby="assets-section"] .inventory-empty') {
     return {
       filter(options) {
@@ -241,6 +261,23 @@ function fakeLocator(selector, calls) {
           ),
         };
       },
+    };
+  }
+  if (selector === ".result-band.bad") {
+    return {
+      waitFor: vi.fn(async () => {
+        if (!options.submitFailure) {
+          return new Promise(() => undefined);
+        }
+        calls.push(["waitForLocator", selector]);
+      }),
+    };
+  }
+  if (selector === ".result-band.bad span") {
+    return {
+      last: () => ({
+        textContent: async () => options.submitFailure,
+      }),
     };
   }
   if (selector === ".review-item") {

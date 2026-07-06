@@ -18,6 +18,7 @@ const DEFAULT_NATIVE_ASSET_QUANTITY = "1";
 const DEFAULT_NATIVE_RECLAIM_COUNT = 5;
 const DEFAULT_NATIVE_ADA_AMOUNT = "2";
 const WALLET_INVENTORY_READY = /^[0-9]+ UTxOs?, [0-9]+ assets?$/iu;
+const SUBMIT_RESULT_TIMEOUT_MS = 120_000;
 
 export class PreprodFundingStageError extends Error {
   constructor(code, message) {
@@ -178,7 +179,10 @@ async function buildSignSubmitFundingTransaction(page, { compromisedCredential, 
   await page.getByText("Datum CBOR").waitFor();
   const reviewedTxHash = sanitizeText(await page.locator(".review-item").filter({ hasText: "Tx hash" }).locator("code").textContent());
   await page.getByRole("button", { name: /sign and submit/iu }).click();
-  await page.getByText("Transaction submitted").waitFor();
+  const submitResult = await waitForSubmitResult(page);
+  if (submitResult.status === "failed") {
+    throw new PreprodFundingStageError("funding_submit_failed", submitResult.message || "Funding transaction submission failed.");
+  }
   const submittedTxHash = sanitizeText(await page.locator(".result-band.ok span").last().textContent());
   if (!submittedTxHash) {
     throw new PreprodFundingStageError("submitted_tx_hash_missing", "Funding flow did not expose a submitted transaction hash.");
@@ -187,6 +191,28 @@ async function buildSignSubmitFundingTransaction(page, { compromisedCredential, 
     reviewedTxHash,
     submittedTxHash,
   };
+}
+
+async function waitForSubmitResult(page) {
+  try {
+    return await Promise.race([
+      page.getByText("Transaction submitted").waitFor({ timeout: SUBMIT_RESULT_TIMEOUT_MS }).then(() => ({ status: "submitted" })),
+      page
+        .locator(".result-band.bad")
+        .waitFor({ timeout: SUBMIT_RESULT_TIMEOUT_MS })
+        .then(async () => ({
+          status: "failed",
+          message: sanitizeText(await page.locator(".result-band.bad span").last().textContent()),
+        })),
+    ]);
+  } catch (error) {
+    throw new PreprodFundingStageError(
+      "funding_submit_result_timeout",
+      `Funding transaction submission did not reach a success or failure state within ${SUBMIT_RESULT_TIMEOUT_MS / 1000}s: ${
+        error instanceof Error ? error.message : "timed out"
+      }`,
+    );
+  }
 }
 
 function getCompromisedCredential(walletHarness, compromisedRole) {
