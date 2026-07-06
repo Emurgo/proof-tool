@@ -134,7 +134,7 @@ describe("native-asset preprod funding stage", () => {
       ["fill", "Payment key credential", compromisedCredential],
       ["fill", "ADA amount", "2.25"],
       ["fillPlaceholder", "policyId + tokenName hex", nativeUnit],
-      ["fillPlaceholder", "0", "3"],
+      ["fillRole", "textbox", "quantity", "3"],
       ["click", "refresh assets"],
       ["waitForLocatorText", "section[aria-labelledby=\"assets-section\"] .inventory-empty", "/^[0-9]+ UTxOs?, [0-9]+ assets?$/iu"],
       ["click", "build transaction"],
@@ -145,7 +145,7 @@ describe("native-asset preprod funding stage", () => {
       ["fill", "Payment key credential", compromisedCredential],
       ["fill", "ADA amount", "2.25"],
       ["fillPlaceholder", "policyId + tokenName hex", nativeUnit],
-      ["fillPlaceholder", "0", "3"],
+      ["fillRole", "textbox", "quantity", "3"],
       ["click", "refresh assets"],
       ["waitForLocatorText", "section[aria-labelledby=\"assets-section\"] .inventory-empty", "/^[0-9]+ UTxOs?, [0-9]+ assets?$/iu"],
       ["click", "build transaction"],
@@ -228,6 +228,7 @@ function fakeFundingPage(options = {}) {
       const name = regexName(options.name);
       return {
         click: vi.fn(async () => calls.push(["click", name])),
+        fill: vi.fn(async (value) => calls.push(["fillRole", _role, name, value])),
       };
     },
     getByText(text) {

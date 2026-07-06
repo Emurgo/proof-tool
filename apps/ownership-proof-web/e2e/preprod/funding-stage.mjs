@@ -171,7 +171,7 @@ async function buildSignSubmitFundingTransaction(page, { compromisedCredential, 
   await page.getByLabel("ADA amount").fill(adaAmount);
   if (nativeAsset) {
     await page.getByPlaceholder("policyId + tokenName hex").fill(nativeAsset.unit);
-    await page.getByPlaceholder("0").fill(nativeAsset.quantity);
+    await page.getByRole("textbox", { name: /^quantity$/iu }).fill(nativeAsset.quantity);
   }
   await page.getByRole("button", { name: /refresh assets/iu }).click();
   await page.locator('section[aria-labelledby="assets-section"] .inventory-empty').filter({ hasText: WALLET_INVENTORY_READY }).waitFor();
