@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/blake2b"
+
 	"proof-tool/internal/artifact"
 	"proof-tool/internal/circuit/ownership"
 	"proof-tool/internal/circuit/ownershipdest"
@@ -60,6 +62,8 @@ func run(args []string) error {
 		return cmdVerifyMulti(args[2:])
 	case "export-cardano":
 		return cmdExportCardano(args[2:])
+	case "export-cardano-vk":
+		return cmdExportCardanoVK(args[2:])
 	case "generate-destination-benchmark-fixtures":
 		return cmdGenerateDestinationBenchmarkFixtures(args[2:])
 	case "generate-multi-benchmark-fixtures":
@@ -572,6 +576,55 @@ func cmdExportCardano(args []string) error {
 	default:
 		return fmt.Errorf("artifact circuit id %q is not supported", proofArtifact.CircuitID)
 	}
+}
+
+func cmdExportCardanoVK(args []string) error {
+	fs := flag.NewFlagSet("export-cardano-vk", flag.ContinueOnError)
+	keyVersion := fs.String("key-version", prover.DefaultDestinationKeyVersion, "key version to export")
+	keysDir := fs.String("keys-dir", "", "verifying key bundle directory; defaults from key version")
+	outPath := fs.String("out", "cardano-vk/vk.hex", "Cardano verifier key hex output path")
+	formatPath := fs.String("format-out", "cardano-vk/format.txt", "Cardano verifier key format output path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	profile, err := ceremonyProfileForKeyVersion(*keyVersion)
+	if err != nil {
+		return err
+	}
+	resolvedKeysDir := *keysDir
+	if strings.TrimSpace(resolvedKeysDir) == "" {
+		resolvedKeysDir = profile.DefaultKeysDir
+	}
+	bundle, err := profile.LoadVerifier(resolvedKeysDir)
+	if err != nil {
+		return err
+	}
+	vkBytes, vkFormat, err := prover.SerializeCardanoVK(bundle.VerifyingKey)
+	if err != nil {
+		return err
+	}
+	if err := mkdirParent(*outPath); err != nil {
+		return err
+	}
+	if err := mkdirParent(*formatPath); err != nil {
+		return err
+	}
+	if err := os.WriteFile(*outPath, []byte(hex.EncodeToString(vkBytes)+"\n"), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", *outPath, err)
+	}
+	if err := writeTextFile(*formatPath, vkFormat+"\n"); err != nil {
+		return err
+	}
+	vkDigest := blake2b.Sum256(vkBytes)
+	fmt.Printf("wrote cardano vk: %s\n", *outPath)
+	fmt.Printf("format: %s\n", vkFormat)
+	fmt.Printf("vk_bytes: %d\n", len(vkBytes))
+	fmt.Printf("vk_hash: %s\n", bundle.Manifest.VKHash)
+	fmt.Printf("cardano_vk_blake2b256: blake2b256:%s\n", hex.EncodeToString(vkDigest[:]))
+	return nil
 }
 
 func exportCardanoSingle(proofArtifact *artifact.ProofArtifact, keysDir, outDir string) error {
@@ -1218,5 +1271,5 @@ func writeTextFile(path, text string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|prove-destination|prove-multi|verify|verify-destination|verify-multi|export-cardano|generate-destination-benchmark-fixtures|generate-multi-benchmark-fixtures|setup-ceremony|verify-key-bundle|serve-verifier|serve-helper> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|prove-destination|prove-multi|verify|verify-destination|verify-multi|export-cardano|export-cardano-vk|generate-destination-benchmark-fixtures|generate-multi-benchmark-fixtures|setup-ceremony|verify-key-bundle|serve-verifier|serve-helper> [flags]")
 }

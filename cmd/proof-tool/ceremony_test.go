@@ -7,6 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"proof-tool/internal/circuit/ownership"
+	"proof-tool/internal/circuit/ownershipdest"
+	"proof-tool/internal/prover"
 )
 
 func TestEd25519SigningKeyRoundTrip(t *testing.T) {
@@ -80,5 +84,27 @@ func TestEnsureFreshDirectoryRejectsNonEmpty(t *testing.T) {
 	err := ensureFreshDirectory(dir)
 	if err == nil || !strings.Contains(err.Error(), "not empty") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCeremonyProfileForKeyVersion(t *testing.T) {
+	ownershipProfile, err := ceremonyProfileForKeyVersion(prover.DefaultKeyVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownershipProfile.CircuitID != ownership.CircuitID {
+		t.Fatalf("ownership circuit id = %q", ownershipProfile.CircuitID)
+	}
+
+	destinationProfile, err := ceremonyProfileForKeyVersion(prover.DefaultDestinationKeyVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if destinationProfile.CircuitID != ownershipdest.CircuitID {
+		t.Fatalf("destination circuit id = %q", destinationProfile.CircuitID)
+	}
+
+	if _, err := ceremonyProfileForKeyVersion("ownership-destination-v2"); err == nil || !strings.Contains(err.Error(), "unsupported key version") {
+		t.Fatalf("unsupported key version err = %v", err)
 	}
 }

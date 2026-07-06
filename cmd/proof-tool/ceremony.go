@@ -22,6 +22,7 @@ import (
 
 	"proof-tool/internal/artifact"
 	"proof-tool/internal/circuit/ownership"
+	"proof-tool/internal/circuit/ownershipdest"
 	"proof-tool/internal/prover"
 )
 
@@ -58,6 +59,16 @@ type setupCeremonyResult struct {
 	ToxicWasteNotesPath  string
 	ChecksumsPath        string
 	Manifest             *artifact.KeyManifest
+}
+
+type ceremonyCircuitProfile struct {
+	KeyVersion     string
+	CircuitID      string
+	Label          string
+	DefaultKeysDir string
+	Compile        func() (constraint.ConstraintSystem, error)
+	Inspect        func(string, bool) prover.BundleStatus
+	LoadVerifier   func(string) (*prover.OwnershipBundle, error)
 }
 
 type ceremonyDigest struct {
@@ -153,7 +164,7 @@ func cmdSetupCeremony(args []string) error {
 		*signatureKeyID = "proof-helper-local-" + now.Format("20060102")
 	}
 	if *outDir == "" {
-		*outDir = filepath.Join("output", "ceremony", "ownership-v1-local-"+now.Format("20060102T150405Z"))
+		*outDir = filepath.Join("output", "ceremony", safeFileToken(*keyVersion)+"-local-"+now.Format("20060102T150405Z"))
 	}
 	if *signingKeyPath == "" {
 		*signingKeyPath = defaultSigningKeyPath(*signatureKeyID)
@@ -191,6 +202,7 @@ func cmdSetupCeremony(args []string) error {
 func cmdVerifyKeyBundle(args []string) error {
 	fs := flag.NewFlagSet("verify-key-bundle", flag.ContinueOnError)
 	keysDir := fs.String("keys-dir", prover.DefaultKeyDir(), "key bundle directory")
+	keyVersion := fs.String("key-version", "", "expected key version; inferred from manifest.json when omitted")
 	publicKeyHex := fs.String("manifest-public-key", "", "trusted Ed25519 manifest public key as hex")
 	publicKeyFile := fs.String("manifest-public-key-file", "", "trusted Ed25519 manifest public key hex file")
 	expectedSignatureKeyID := fs.String("signature-key-id", "", "optional expected manifest signature key id")
@@ -201,6 +213,15 @@ func cmdVerifyKeyBundle(args []string) error {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
 	}
+	keysDirWasSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "keys-dir" {
+			keysDirWasSet = true
+		}
+	})
+	if !keysDirWasSet && *keyVersion == prover.DefaultDestinationKeyVersion {
+		*keysDir = prover.DefaultDestinationKeyDir()
+	}
 	pubHex, trusted, err := manifestPublicKeyForVerification(*keysDir, *publicKeyHex, *publicKeyFile)
 	if err != nil {
 		return err
@@ -208,7 +229,7 @@ func cmdVerifyKeyBundle(args []string) error {
 	if !trusted {
 		fmt.Fprintln(os.Stderr, "warning: using bundled manifest-public-key.hex; this checks integrity but does not establish signer trust")
 	}
-	manifest, err := verifyKeyBundle(*keysDir, pubHex, *expectedSignatureKeyID, *requireProvingKey)
+	manifest, err := verifyKeyBundle(*keysDir, *keyVersion, pubHex, *expectedSignatureKeyID, *requireProvingKey)
 	if err != nil {
 		return err
 	}
@@ -228,6 +249,11 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 	if strings.TrimSpace(opts.KeyVersion) == "" {
 		return nil, errors.New("--key-version is required")
 	}
+	profile, err := ceremonyProfileForKeyVersion(opts.KeyVersion)
+	if err != nil {
+		return nil, err
+	}
+	opts.KeyVersion = profile.KeyVersion
 	if opts.Now.IsZero() {
 		opts.Now = time.Now().UTC()
 	}
@@ -255,8 +281,8 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 		return nil, err
 	}
 
-	fmt.Fprintln(os.Stderr, "compiling ownership circuit")
-	ccs, err := prover.CompileOwnership()
+	fmt.Fprintf(os.Stderr, "compiling %s circuit\n", profile.Label)
+	ccs, err := profile.Compile()
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +330,7 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 		TrustModel:              "The operator of this machine is trusted to have run the setup honestly and not retained trapdoor material.",
 		SingleActorAcknowledged: opts.AcknowledgeSingleActor,
 		KeyVersion:              opts.KeyVersion,
-		CircuitID:               ownership.CircuitID,
+		CircuitID:               profile.CircuitID,
 		Curve:                   "BLS12-381",
 		Backend:                 "groth16",
 		Software: ceremonySoftware{
@@ -354,7 +380,7 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 	manifest := &artifact.KeyManifest{
 		Schema:               artifact.ManifestSchema,
 		KeyVersion:           opts.KeyVersion,
-		CircuitID:            ownership.CircuitID,
+		CircuitID:            profile.CircuitID,
 		Curve:                "BLS12-381",
 		Backend:              "groth16",
 		VKHash:               vkDigest.Blake2b256,
@@ -392,7 +418,7 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 	if err := writeBundleChecksums(opts.OutDir, checksumsPath); err != nil {
 		return nil, err
 	}
-	if _, err := verifyKeyBundle(opts.OutDir, publicKeyHex, opts.SignatureKeyID, true); err != nil {
+	if _, err := verifyKeyBundle(opts.OutDir, opts.KeyVersion, publicKeyHex, opts.SignatureKeyID, true); err != nil {
 		return nil, err
 	}
 
@@ -411,8 +437,12 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 	}, nil
 }
 
-func verifyKeyBundle(keysDir, publicKeyHex, expectedSignatureKeyID string, requireProvingKey bool) (*artifact.KeyManifest, error) {
-	status := prover.InspectOwnershipBundle(keysDir, requireProvingKey)
+func verifyKeyBundle(keysDir, keyVersion, publicKeyHex, expectedSignatureKeyID string, requireProvingKey bool) (*artifact.KeyManifest, error) {
+	profile, err := ceremonyProfileForBundle(keysDir, keyVersion)
+	if err != nil {
+		return nil, err
+	}
+	status := profile.Inspect(keysDir, requireProvingKey)
 	if !status.Ready {
 		return nil, fmt.Errorf("key bundle is not ready: %s", status.Error)
 	}
@@ -428,6 +458,44 @@ func verifyKeyBundle(keysDir, publicKeyHex, expectedSignatureKeyID string, requi
 		return nil, err
 	}
 	return manifest, nil
+}
+
+func ceremonyProfileForBundle(keysDir, keyVersion string) (ceremonyCircuitProfile, error) {
+	if strings.TrimSpace(keyVersion) != "" {
+		return ceremonyProfileForKeyVersion(keyVersion)
+	}
+	manifest, err := artifact.ReadKeyManifest(filepath.Join(keysDir, "manifest.json"))
+	if err != nil {
+		return ceremonyCircuitProfile{}, err
+	}
+	return ceremonyProfileForKeyVersion(manifest.KeyVersion)
+}
+
+func ceremonyProfileForKeyVersion(keyVersion string) (ceremonyCircuitProfile, error) {
+	switch strings.TrimSpace(keyVersion) {
+	case prover.DefaultKeyVersion:
+		return ceremonyCircuitProfile{
+			KeyVersion:     prover.DefaultKeyVersion,
+			CircuitID:      ownership.CircuitID,
+			Label:          "ownership",
+			DefaultKeysDir: prover.DefaultKeyDir(),
+			Compile:        prover.CompileOwnership,
+			Inspect:        prover.InspectOwnershipBundle,
+			LoadVerifier:   prover.LoadOwnershipVerifier,
+		}, nil
+	case prover.DefaultDestinationKeyVersion:
+		return ceremonyCircuitProfile{
+			KeyVersion:     prover.DefaultDestinationKeyVersion,
+			CircuitID:      ownershipdest.CircuitID,
+			Label:          "ownership destination",
+			DefaultKeysDir: prover.DefaultDestinationKeyDir(),
+			Compile:        prover.CompileOwnershipDestination,
+			Inspect:        prover.InspectOwnershipDestinationBundle,
+			LoadVerifier:   prover.LoadOwnershipDestinationVerifier,
+		}, nil
+	default:
+		return ceremonyCircuitProfile{}, fmt.Errorf("unsupported key version %q; expected %q or %q", keyVersion, prover.DefaultKeyVersion, prover.DefaultDestinationKeyVersion)
+	}
 }
 
 func verifyManifestSignature(manifestPath, signaturePath, publicKeyHex string) error {
@@ -678,7 +746,7 @@ func toxicWasteNotes(generatedAt time.Time, source ceremonySource) string {
 Generated at: %s
 %s
 
-This bundle was produced with gnark Groth16 setup for the ownership circuit.
+This bundle was produced with gnark Groth16 setup for the configured proof circuit.
 During setup, gnark samples Groth16 trapdoor values in process memory and uses
 them to derive `+"`ownership.pk`"+` and `+"`ownership.vk`"+`. This repository did not write any toxic-waste
 file, ptau file, zkey file, or trapdoor transcript for this run.
@@ -701,9 +769,9 @@ func writeBundleReadme(outDir string, manifest *artifact.KeyManifest, publicKeyH
 	if generatedSigningKey {
 		signingKeyLine = "A local Ed25519 signing key was generated under output/signing-keys; do not publish the private key."
 	}
-	text := fmt.Sprintf(`# Ownership Key Bundle
+	text := fmt.Sprintf(`# Proof Tool Key Bundle
 
-This directory contains a signed key bundle for the root ownership proof circuit.
+This directory contains a signed key bundle for the configured proof circuit.
 
 Files:
 

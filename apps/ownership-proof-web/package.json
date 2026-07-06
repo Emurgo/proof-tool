@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
+    "deploy:reclaim:preprod": "node e2e/preprod/deploy-reclaim-preprod.mjs",
     "test:e2e:preprod": "node e2e/preprod/run.mjs",
     "typecheck": "tsc --noEmit",
     "verify:reclaim-manifest": "node scripts/verify-reclaim-manifest.mjs",

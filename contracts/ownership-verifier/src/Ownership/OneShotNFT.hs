@@ -1,13 +1,18 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Ownership.OneShotNFT
   ( mintsExactlyOneOwnToken
+  , oneShotNFTPolicyCode
   , oneShotNFTPolicy
   , oneShotNFTPolicyUntyped
   , spendsTxOutRef
   ) where
 
+import PlutusTx (CompiledCode, unsafeFromBuiltinData)
+import qualified PlutusTx
 import PlutusLedgerApi.V3
   ( ScriptContext
   , TxInInfo (txInInfoOutRef)
@@ -18,7 +23,6 @@ import PlutusLedgerApi.V3
   , txInfoMint
   )
 import PlutusLedgerApi.V3.Contexts (ownCurrencySymbol)
-import PlutusTx (unsafeFromBuiltinData)
 import PlutusTx.Prelude
 import qualified PlutusLedgerApi.V3 as V3
 import qualified PlutusTx.AssocMap as Map
@@ -60,3 +64,7 @@ oneShotNFTPolicyUntyped seedRef ctx =
     oneShotNFTPolicy
       seedRef
       (unsafeFromBuiltinData ctx)
+
+oneShotNFTPolicyCode :: CompiledCode (TxOutRef -> BuiltinData -> BuiltinUnit)
+oneShotNFTPolicyCode =
+  $$(PlutusTx.compile [||oneShotNFTPolicyUntyped||])
