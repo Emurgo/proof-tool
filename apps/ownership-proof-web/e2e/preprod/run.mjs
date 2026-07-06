@@ -23,9 +23,9 @@ export const PREPROD_E2E_STAGES = Object.freeze([
   "fund-native-asset-reclaims",
   "discover-matching-claims",
   "generate-destination-bound-proofs",
+  "negative-guardrails",
   "claim-first-batch",
   "claim-tail-and-receipt",
-  "negative-guardrails",
 ]);
 
 export async function runPreprodE2E(options = {}) {
@@ -253,6 +253,24 @@ export async function runPreprodE2E(options = {}) {
     if (Array.isArray(browserBootstrap?.artifacts)) {
       artifacts.push(...browserBootstrap.artifacts);
     }
+    runManifest.completedAt = now().toISOString();
+    runManifest.stages = runManifest.stages.map((stage) => ({
+      ...stage,
+      status: "complete",
+      reason: null,
+    }));
+    writeFile(runManifestPath, `${JSON.stringify(runManifest, null, 2)}\n`, "utf8");
+    const result = {
+      ok: true,
+      code: "live_preprod_e2e_complete",
+      preflight,
+      outputDir,
+      artifacts,
+    };
+    return {
+      ...result,
+      report: formatRunnerReport(result),
+    };
   } catch (error) {
     const result = {
       ok: false,
@@ -297,6 +315,9 @@ export function formatRunnerReport(result) {
   if (result.code === "live_transaction_gate_missing") {
     lines.push(`Live browser signing and provider submission are blocked until ${TRANSACTION_APPROVAL_ENV}=1 is set.`);
     lines.push("No browser automation, wallet signing, provider submission, proof bytes, witness sets, or CBOR artifacts were produced.");
+  } else if (result.ok === true) {
+    lines.push("Live preprod E2E completed all configured gated stages.");
+    lines.push("Completed stages: deploy-or-verify-preprod-manifest, fund-ada-only-reclaim, fund-native-asset-reclaims, discover-matching-claims, generate-destination-bound-proofs, negative-guardrails, claim-first-batch, claim-tail-and-receipt.");
   } else if (result.code === "live_browser_flow_not_implemented" || result.code === "live_product_flow_not_implemented") {
     lines.push("Live preprod E2E execution is not complete yet; remaining negative guardrails are still pending.");
     lines.push("Implemented stages run through first-batch claim, tail receipt, and safe-wallet balance evidence when the configured deployment supports them.");

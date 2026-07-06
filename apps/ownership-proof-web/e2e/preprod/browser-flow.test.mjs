@@ -21,6 +21,7 @@ describe("preprod browser bootstrap", () => {
     const nativeFundingStageRunner = vi.fn(async () => fakeNativeFundingStage(outputDir));
     const claimDiscoveryStageRunner = vi.fn(async () => fakeClaimDiscoveryStage(outputDir));
     const destinationProofStageRunner = vi.fn(async () => fakeDestinationProofStage(outputDir));
+    const negativeGuardrailsStageRunner = vi.fn(async () => fakeNegativeGuardrailsStage(outputDir));
     const claimFirstBatchStageRunner = vi.fn(async () => fakeClaimFirstBatchStage(outputDir));
     const claimTailReceiptStageRunner = vi.fn(async () => fakeClaimTailReceiptStage(outputDir));
 
@@ -36,6 +37,7 @@ describe("preprod browser bootstrap", () => {
       nativeFundingStageRunner,
       claimDiscoveryStageRunner,
       destinationProofStageRunner,
+      negativeGuardrailsStageRunner,
       claimFirstBatchStageRunner,
       claimTailReceiptStageRunner,
     });
@@ -96,6 +98,20 @@ describe("preprod browser bootstrap", () => {
         },
       }),
     );
+    expect(negativeGuardrailsStageRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: fake.page,
+        walletHarness,
+        outputDir,
+        appTarget: {
+          baseUrl: "http://127.0.0.1:3917",
+        },
+        helperTarget: null,
+        proofBundle: {
+          selectedOutrefs: ["a".repeat(64) + "#0"],
+        },
+      }),
+    );
     expect(claimTailReceiptStageRunner).toHaveBeenCalledWith(
       expect.objectContaining({
         page: fake.page,
@@ -123,6 +139,8 @@ describe("preprod browser bootstrap", () => {
       "discover-matching-claims.png",
       "generate-destination-bound-proofs.json",
       "generate-destination-bound-proofs.png",
+      "negative-guardrails.json",
+      "negative-guardrails.png",
       "claim-first-batch.json",
       "claim-first-batch.png",
       "claim-tail-and-receipt.json",
@@ -161,6 +179,7 @@ describe("preprod browser bootstrap", () => {
       nativeFundingStageRunner: async () => fakeNativeFundingStage(tempDir()),
       claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
       destinationProofStageRunner: async () => fakeDestinationProofStage(tempDir()),
+      negativeGuardrailsStageRunner: async () => fakeNegativeGuardrailsStage(tempDir()),
       claimFirstBatchStageRunner: async () => fakeClaimFirstBatchStage(tempDir()),
       claimTailReceiptStageRunner: async () => fakeClaimTailReceiptStage(tempDir()),
     });
@@ -184,6 +203,7 @@ describe("preprod browser bootstrap", () => {
         nativeFundingStageRunner: async () => fakeNativeFundingStage(tempDir()),
         claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
         destinationProofStageRunner: async () => fakeDestinationProofStage(tempDir()),
+        negativeGuardrailsStageRunner: async () => fakeNegativeGuardrailsStage(tempDir()),
         claimFirstBatchStageRunner: async () => fakeClaimFirstBatchStage(tempDir()),
         claimTailReceiptStageRunner: async () => fakeClaimTailReceiptStage(tempDir()),
       }),
@@ -281,6 +301,16 @@ function fakeDestinationProofStage(outputDir) {
     proofBundle: {
       selectedOutrefs: ["a".repeat(64) + "#0"],
     },
+  };
+}
+
+function fakeNegativeGuardrailsStage(outputDir) {
+  const jsonPath = path.join(outputDir, "negative-guardrails.json");
+  const screenshotPath = path.join(outputDir, "screenshots", "negative-guardrails.png");
+  mkdirSync(path.dirname(screenshotPath), { recursive: true });
+  return {
+    ok: true,
+    artifacts: [jsonPath, screenshotPath],
   };
 }
 

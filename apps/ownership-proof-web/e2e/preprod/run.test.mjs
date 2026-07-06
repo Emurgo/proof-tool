@@ -75,7 +75,7 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.report).toContain("No browser automation");
   });
 
-  it("keeps approved live runs fail-closed until stage execution exists", async () => {
+  it("returns success when approved live stage execution completes", async () => {
     const repo = tempDir();
     const commit = "abcdef1234567890abcdef1234567890abcdef12";
     const walletPath = path.join(repo, "wallets.local.json");
@@ -102,9 +102,10 @@ describe("Phase 9A preprod E2E runner", () => {
       browserBootstrapRunner: async () => fakeBrowserBootstrap(repo),
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe("live_product_flow_not_implemented");
-    expect(result.report).toContain("Pending stages: negative-guardrails.");
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe("live_preprod_e2e_complete");
+    expect(result.report).toContain("Live preprod E2E completed all configured gated stages.");
+    expect(result.report).not.toContain("Pending stages");
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
       "run-manifest.json",
       "live-config.json",
@@ -116,10 +117,23 @@ describe("Phase 9A preprod E2E runner", () => {
       "reclaim-initial.png",
       "fund-ada-only-reclaim.json",
       "fund-ada-only-reclaim.png",
+      "fund-native-asset-reclaims.json",
+      "fund-native-asset-reclaims-1.png",
+      "discover-matching-claims.json",
+      "discover-matching-claims.png",
+      "generate-destination-bound-proofs.json",
+      "generate-destination-bound-proofs.png",
+      "negative-guardrails.json",
+      "negative-guardrails.png",
+      "claim-first-batch.json",
+      "claim-first-batch.png",
+      "claim-tail-and-receipt.json",
+      "claim-tail-and-receipt.png",
     ]);
     const manifest = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
     expect(manifest.transactionSubmissionApproved).toBe(true);
-    expect(manifest.stages.every((stage) => stage.status === "pending")).toBe(true);
+    expect(manifest.completedAt).toBe("2026-07-05T13:00:00.000Z");
+    expect(manifest.stages.every((stage) => stage.status === "complete")).toBe(true);
     const liveConfig = JSON.parse(readFileSync(result.artifacts[1], "utf8"));
     expect(liveConfig.schema).toBe("proof-tool-preprod-live-config-v1");
     const helperTarget = JSON.parse(readFileSync(result.artifacts[2], "utf8"));
@@ -469,27 +483,44 @@ function fakeAppTarget() {
 }
 
 function fakeBrowserBootstrap(repo) {
-  const jsonPath = path.join(repo, "browser-bootstrap.json");
-  const screenshotPath = path.join(repo, "screenshots", "reclaim-initial.png");
-  const fundingJsonPath = path.join(repo, "fund-ada-only-reclaim.json");
-  const fundingScreenshotPath = path.join(repo, "screenshots", "fund-ada-only-reclaim.png");
-  writeFile(
-    jsonPath,
-    JSON.stringify({
-      schema: "proof-tool-preprod-browser-bootstrap-v1",
-    }),
-  );
-  writeFile(screenshotPath, "fake png");
-  writeFile(
-    fundingJsonPath,
-    JSON.stringify({
-      schema: "proof-tool-preprod-funding-stage-v1",
-    }),
-  );
-  writeFile(fundingScreenshotPath, "fake png");
+  const stages = [
+    ["browser-bootstrap.json", "proof-tool-preprod-browser-bootstrap-v1"],
+    ["fund-ada-only-reclaim.json", "proof-tool-preprod-funding-stage-v1"],
+    ["fund-native-asset-reclaims.json", "proof-tool-preprod-native-funding-stage-v1"],
+    ["discover-matching-claims.json", "proof-tool-preprod-claim-discovery-stage-v1"],
+    ["generate-destination-bound-proofs.json", "proof-tool-preprod-destination-proof-stage-v1"],
+    ["negative-guardrails.json", "proof-tool-preprod-negative-guardrails-stage-v1"],
+    ["claim-first-batch.json", "proof-tool-preprod-claim-first-batch-stage-v1"],
+    ["claim-tail-and-receipt.json", "proof-tool-preprod-claim-tail-receipt-stage-v1"],
+  ];
+  const screenshots = [
+    "reclaim-initial.png",
+    "fund-ada-only-reclaim.png",
+    "fund-native-asset-reclaims-1.png",
+    "discover-matching-claims.png",
+    "generate-destination-bound-proofs.png",
+    "negative-guardrails.png",
+    "claim-first-batch.png",
+    "claim-tail-and-receipt.png",
+  ];
+  const artifacts = [];
+  for (const [fileName, schema] of stages) {
+    const artifactPath = path.join(repo, fileName);
+    writeFile(
+      artifactPath,
+      JSON.stringify({
+        schema,
+      }),
+    );
+    artifacts.push(artifactPath);
+    const screenshotName = screenshots.shift();
+    const screenshotPath = path.join(repo, "screenshots", screenshotName);
+    writeFile(screenshotPath, "fake png");
+    artifacts.push(screenshotPath);
+  }
   return {
     ok: true,
-    artifacts: [jsonPath, screenshotPath, fundingJsonPath, fundingScreenshotPath],
+    artifacts,
   };
 }
 
