@@ -17,6 +17,7 @@ const DEFAULT_COMPROMISED_WALLET_ROLE = "compromised_user";
 const DEFAULT_NATIVE_ASSET_QUANTITY = "1";
 const DEFAULT_NATIVE_RECLAIM_COUNT = 5;
 const DEFAULT_NATIVE_ADA_AMOUNT = "2";
+const WALLET_INVENTORY_READY = /^[0-9]+ UTxOs?, [0-9]+ assets?$/iu;
 
 export class PreprodFundingStageError extends Error {
   constructor(code, message) {
@@ -172,7 +173,7 @@ async function buildSignSubmitFundingTransaction(page, { compromisedCredential, 
     await page.getByPlaceholder("0").fill(nativeAsset.quantity);
   }
   await page.getByRole("button", { name: /refresh assets/iu }).click();
-  await page.getByText(/UTxO|assets|No assets/iu).waitFor();
+  await page.locator('section[aria-labelledby="assets-section"] .inventory-empty').filter({ hasText: WALLET_INVENTORY_READY }).waitFor();
   await page.getByRole("button", { name: /build transaction/iu }).click();
   await page.getByText("Datum CBOR").waitFor();
   const reviewedTxHash = sanitizeText(await page.locator(".review-item").filter({ hasText: "Tx hash" }).locator("code").textContent());

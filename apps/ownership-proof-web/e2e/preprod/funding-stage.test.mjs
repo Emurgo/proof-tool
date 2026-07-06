@@ -36,7 +36,7 @@ describe("ADA-only preprod funding stage", () => {
       ["fill", "Payment key credential", compromisedCredential],
       ["fill", "ADA amount", "1.75"],
       ["click", "refresh assets"],
-      ["waitForText", "/UTxO|assets|No assets/iu"],
+      ["waitForLocatorText", "section[aria-labelledby=\"assets-section\"] .inventory-empty", "/^[0-9]+ UTxOs?, [0-9]+ assets?$/iu"],
       ["click", "build transaction"],
       ["waitForText", "Datum CBOR"],
       ["click", "sign and submit"],
@@ -121,7 +121,7 @@ describe("native-asset preprod funding stage", () => {
       ["fillPlaceholder", "policyId + tokenName hex", nativeUnit],
       ["fillPlaceholder", "0", "3"],
       ["click", "refresh assets"],
-      ["waitForText", "/UTxO|assets|No assets/iu"],
+      ["waitForLocatorText", "section[aria-labelledby=\"assets-section\"] .inventory-empty", "/^[0-9]+ UTxOs?, [0-9]+ assets?$/iu"],
       ["click", "build transaction"],
       ["waitForText", "Datum CBOR"],
       ["click", "sign and submit"],
@@ -132,7 +132,7 @@ describe("native-asset preprod funding stage", () => {
       ["fillPlaceholder", "policyId + tokenName hex", nativeUnit],
       ["fillPlaceholder", "0", "3"],
       ["click", "refresh assets"],
-      ["waitForText", "/UTxO|assets|No assets/iu"],
+      ["waitForLocatorText", "section[aria-labelledby=\"assets-section\"] .inventory-empty", "/^[0-9]+ UTxOs?, [0-9]+ assets?$/iu"],
       ["click", "build transaction"],
       ["waitForText", "Datum CBOR"],
       ["click", "sign and submit"],
@@ -221,7 +221,7 @@ function fakeFundingPage() {
       };
     },
     locator(selector) {
-      return fakeLocator(selector);
+      return fakeLocator(selector, calls);
     },
     screenshot: vi.fn(async ({ path: screenshotPath }) => {
       mkdirSync(path.dirname(screenshotPath), { recursive: true });
@@ -231,7 +231,18 @@ function fakeFundingPage() {
   };
 }
 
-function fakeLocator(selector) {
+function fakeLocator(selector, calls) {
+  if (selector === 'section[aria-labelledby="assets-section"] .inventory-empty') {
+    return {
+      filter(options) {
+        return {
+          waitFor: vi.fn(async () =>
+            calls.push(["waitForLocatorText", selector, options?.hasText instanceof RegExp ? String(options.hasText) : String(options?.hasText ?? "")]),
+          ),
+        };
+      },
+    };
+  }
   if (selector === ".review-item") {
     return {
       filter: () => ({
