@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   REQUIRED_WALLET_ROLES,
+  MANIFEST_JSON_ENV,
   formatPreflightReport,
   redactSensitiveValue,
   runPreprodPreflight,
@@ -16,6 +17,9 @@ import { validatePreprodHelperTarget, writePreprodHelperTargetArtifact } from ".
 import { validatePreprodLiveConfig, writePreprodLiveConfigArtifact } from "./live-config.mjs";
 
 export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
+export const MANIFEST_SNAPSHOT_FILE = "deployment-manifest.snapshot.json";
+
+const MANIFEST_PATH_ENVS = ["RECLAIM_DEPLOYMENT_MANIFEST_PATH", "RECLAIM_DEPLOYMENT_MANIFEST", "RECLAIM_MANIFEST_PATH"];
 
 export const PREPROD_E2E_STAGES = Object.freeze([
   "deploy-or-verify-preprod-manifest",
@@ -173,11 +177,38 @@ export async function runPreprodE2E(options = {}) {
   );
   artifacts.push(walletHarnessPath);
 
+  let runEnv = env;
+  try {
+    const manifestSnapshotPath = writeManifestSnapshotForRun({
+      env,
+      cwd: options.cwd ?? process.cwd(),
+      outputDir,
+      writeFile,
+    });
+    if (manifestSnapshotPath) {
+      artifacts.push(manifestSnapshotPath);
+      runEnv = envWithManifestSnapshot(env, manifestSnapshotPath);
+    }
+  } catch (error) {
+    const result = {
+      ok: false,
+      code: "manifest_snapshot_failed",
+      preflight,
+      outputDir,
+      artifacts,
+      error: sanitizeError(error, "manifest_snapshot_error", "Deployment manifest snapshot failed."),
+    };
+    return {
+      ...result,
+      report: formatRunnerReport(result),
+    };
+  }
+
   let appTarget;
   try {
     appTarget = await appTargetLoader({
       ...(options.appTargetOptions ?? {}),
-      env,
+      env: runEnv,
       cwd: options.cwd ?? process.cwd(),
       repoRoot: options.repoRoot,
       outputDir,
@@ -244,7 +275,7 @@ export async function runPreprodE2E(options = {}) {
 
     const browserBootstrap = await browserBootstrapRunner({
       ...(options.browserBootstrapOptions ?? {}),
-      env,
+      env: runEnv,
       appTarget,
       walletHarness,
       helperTarget,
@@ -337,6 +368,11 @@ export function formatRunnerReport(result) {
     if (result.error) {
       lines.push(`- ${result.error.code}: ${result.error.message}`);
     }
+  } else if (result.code === "manifest_snapshot_failed") {
+    lines.push("Deployment manifest snapshot failed closed before app startup.");
+    if (result.error) {
+      lines.push(`- ${result.error.code}: ${result.error.message}`);
+    }
   } else if (result.code === "app_server_failed") {
     lines.push("Preprod app target failed closed before browser automation.");
     if (result.error) {
@@ -370,6 +406,57 @@ function sanitizeError(error, fallbackCode = "cip30_harness_error", fallbackMess
     code: typeof error.code === "string" ? error.code : fallbackCode,
     message: typeof error.message === "string" ? error.message : fallbackMessage,
   };
+}
+
+function writeManifestSnapshotForRun({ env, cwd, outputDir, writeFile }) {
+  const manifestJson = stringValue(env[MANIFEST_JSON_ENV]);
+  let contents = "";
+  if (manifestJson) {
+    contents = `${JSON.stringify(JSON.parse(manifestJson), null, 2)}\n`;
+  } else {
+    const manifestPath = firstString(...MANIFEST_PATH_ENVS.map((name) => env[name]));
+    if (!manifestPath) {
+      return null;
+    }
+    contents = readFileSync(resolveConfigPath(manifestPath, cwd), "utf8");
+    JSON.parse(contents);
+    if (!contents.endsWith("\n")) {
+      contents = `${contents}\n`;
+    }
+  }
+
+  const snapshotPath = path.join(outputDir, MANIFEST_SNAPSHOT_FILE);
+  writeFile(snapshotPath, contents, "utf8");
+  return snapshotPath;
+}
+
+function envWithManifestSnapshot(env, manifestSnapshotPath) {
+  const next = {
+    ...env,
+    RECLAIM_DEPLOYMENT_MANIFEST_PATH: manifestSnapshotPath,
+  };
+  delete next[MANIFEST_JSON_ENV];
+  delete next.RECLAIM_DEPLOYMENT_MANIFEST;
+  delete next.RECLAIM_MANIFEST_PATH;
+  return next;
+}
+
+function resolveConfigPath(value, cwd) {
+  return path.isAbsolute(value) ? value : path.resolve(cwd, value);
+}
+
+function firstString(...values) {
+  for (const value of values) {
+    const text = stringValue(value);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function stringValue(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 async function main() {
