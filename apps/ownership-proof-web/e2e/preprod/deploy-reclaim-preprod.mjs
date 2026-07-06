@@ -157,7 +157,7 @@ export async function deployReclaimPreprod(options = {}) {
     reclaimGlobalScriptHash: globalScriptHash,
     paramsHolderScriptHash: holderScriptHash,
     paramsHolderAddress: redactAddress(holderAddress),
-    reclaimGlobalRewardAddress,
+    reclaimGlobalRewardAddress: globalRewardAddress,
     destinationVkHash: destination.vkHash,
     destinationCardanoVkBlake2b256: destination.cardanoVkBlake2b256,
     destinationKeysDir: path.relative(repoRoot, destination.keysDir),
@@ -169,8 +169,27 @@ export async function deployReclaimPreprod(options = {}) {
     },
   };
 
+  console.error(
+    JSON.stringify({
+      schema: "proof-tool-preprod-deploy-status-v1",
+      stage: "pre-submit",
+      txHash,
+      sourceCommit: git.commit,
+      paramsPolicyId,
+      reclaimBaseScriptHash: baseScriptHash,
+      reclaimGlobalScriptHash: globalScriptHash,
+      paramsHolderScriptHash: holderScriptHash,
+    }),
+  );
   const signed = await signBuilder.sign.withWallet().complete();
   const submittedHash = await signed.submit({ canonical: true });
+  console.error(
+    JSON.stringify({
+      schema: "proof-tool-preprod-deploy-status-v1",
+      stage: "submitted",
+      txHash: submittedHash,
+    }),
+  );
   if (submittedHash !== txHash) {
     throw new DeployPreprodError("submitted_tx_hash_mismatch", "Submitted tx hash did not match the reviewed deployment tx hash.");
   }
@@ -667,6 +686,9 @@ async function main() {
     const code = error?.code ?? "deploy_failed";
     const message = error?.message ?? String(error);
     console.error(`Preprod reclaim deployment failed closed: ${code}: ${message}`);
+    if (process.env.RECLAIM_E2E_DEBUG_STACK === "1" && error?.stack) {
+      console.error(error.stack);
+    }
     process.exitCode = 1;
   }
 }
