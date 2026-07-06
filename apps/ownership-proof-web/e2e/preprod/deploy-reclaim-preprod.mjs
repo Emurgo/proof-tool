@@ -192,7 +192,11 @@ export async function deployReclaimPreprod(options = {}) {
     }),
   );
   const signed = await signBuilder.sign.withWallet().complete();
-  const submittedHash = await signed.submit({ canonical: true });
+  const submittedHash = await submitDeploymentTxOrRecover({
+    signed,
+    lucid,
+    txHash,
+  });
   console.error(
     JSON.stringify({
       schema: "proof-tool-preprod-deploy-status-v1",
@@ -521,6 +525,31 @@ async function waitForTx(lucid, txHash) {
   } catch {
     await sleep(10000);
   }
+}
+
+async function submitDeploymentTxOrRecover({ signed, lucid, txHash }) {
+  try {
+    return await signed.submit({ canonical: true });
+  } catch (error) {
+    if (!isAlreadyIncludedSubmitError(error)) {
+      throw error;
+    }
+    console.error(
+      JSON.stringify({
+        schema: "proof-tool-preprod-deploy-status-v1",
+        stage: "submit-recovered",
+        txHash,
+        reason: "provider_reported_inputs_already_spent",
+      }),
+    );
+    await waitForTx(lucid, txHash);
+    return txHash;
+  }
+}
+
+function isAlreadyIncludedSubmitError(error) {
+  const message = typeof error?.message === "string" ? error.message : String(error ?? "");
+  return /All inputs are spent|already been included/iu.test(message);
 }
 
 async function loadDeploymentOutputs(provider, holderAddress, txHash, expected) {
