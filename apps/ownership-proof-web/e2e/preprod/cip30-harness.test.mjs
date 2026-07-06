@@ -62,6 +62,16 @@ describe("preprod CIP-30 wallet harness", () => {
     const helperSecret = await harness.masterXPrvBase64ForHelper("compromised_user");
     expect(Buffer.from(helperSecret, "base64")).toHaveLength(96);
     expect(JSON.stringify(harness.summary)).not.toContain(helperSecret);
+
+    const assetSummary = await harness.roleUtxoAssetSummary("safe_claim_destination");
+    expect(assetSummary).toEqual({
+      role: "safe_claim_destination",
+      utxoCount: 0,
+      assets: {},
+    });
+    await expect(harness.roleUtxoAssetSummary("reclaim_funder")).rejects.toMatchObject({
+      code: "wallet_role_balance_forbidden",
+    });
   });
 
   it("keeps the compromised wallet read-only even when signTx is requested", async () => {

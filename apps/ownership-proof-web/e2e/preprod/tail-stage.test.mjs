@@ -88,11 +88,19 @@ describe("claim-tail-and-receipt preprod stage", () => {
       remainingMatchingUtxos: 0,
       claimCount: 2,
       claimTxHashes: ["1".repeat(64), "2".repeat(64)],
-      claimedOutrefs: [...firstClaim.selectedOutrefs, ...tailOutrefs],
+      claimedOutrefCount: 6,
       reviewedDestinationValue: {
         lovelace: "12000000",
       },
-      safeWalletBalanceVerified: false,
+      safeWalletBalanceVerified: true,
+      safeWalletBalance: {
+        role: "safe_claim_destination",
+        utxoCount: 3,
+        assets: {
+          lovelace: "12000000",
+        },
+        containsReviewedDestinationValue: true,
+      },
       txCborWritten: false,
       witnessSetWritten: false,
       reviewTokenWritten: false,
@@ -104,6 +112,8 @@ describe("claim-tail-and-receipt preprod stage", () => {
       "claim-tail-batch-1/claim-first-batch.json",
     ]);
     const serializedReceipt = JSON.stringify(receipt);
+    expect(serializedReceipt).not.toContain(firstClaim.selectedOutrefs[0]);
+    expect(serializedReceipt).not.toContain(tailOutrefs[0]);
     expect(serializedReceipt).not.toContain(proofHex);
     expect(serializedReceipt).not.toContain(txCbor);
     expect(serializedReceipt).not.toContain(witnessSetCbor);
@@ -177,6 +187,41 @@ describe("claim-tail-and-receipt preprod stage", () => {
     expect(receipt.claimCount).toBe(1);
     expect(receipt.remainingMatchingUtxos).toBe(0);
   });
+
+  it("fails when the safe wallet aggregate does not contain the reviewed destination value", async () => {
+    await expect(
+      runClaimTailAndReceiptStage({
+        env: {},
+        appTarget: { baseUrl: "http://127.0.0.1:3917" },
+        helperTarget: { helperUrl: "http://127.0.0.1:49152", token: "pair-secret" },
+        walletHarness: fakeWalletHarness({ assets: { lovelace: "1" } }),
+        outputDir: tempDir(),
+        firstClaimBundle: firstClaim,
+        fetch: fakeFetch([[]]),
+      }),
+    ).rejects.toMatchObject({
+      code: "safe_wallet_balance_missing_reviewed_value",
+    });
+  });
+
+  it("fails instead of marking balance verified when reviewed destination value is missing", async () => {
+    await expect(
+      runClaimTailAndReceiptStage({
+        env: {},
+        appTarget: { baseUrl: "http://127.0.0.1:3917" },
+        helperTarget: { helperUrl: "http://127.0.0.1:49152", token: "pair-secret" },
+        walletHarness: fakeWalletHarness(),
+        outputDir: tempDir(),
+        firstClaimBundle: {
+          ...firstClaim,
+          destinationValueSummaries: [],
+        },
+        fetch: fakeFetch([[]]),
+      }),
+    ).rejects.toMatchObject({
+      code: "safe_wallet_reviewed_value_missing",
+    });
+  });
 });
 
 function fakeFetch(sequences) {
@@ -209,7 +254,7 @@ function fakeFetch(sequences) {
   return fetch;
 }
 
-function fakeWalletHarness() {
+function fakeWalletHarness(options = {}) {
   return {
     roleState(role) {
       if (role !== "compromised_user") {
@@ -218,6 +263,16 @@ function fakeWalletHarness() {
       return {
         role,
         paymentCredential: impactedCredential,
+      };
+    },
+    async roleUtxoAssetSummary(role) {
+      if (role !== "safe_claim_destination") {
+        throw new Error(`unexpected safe wallet role: ${role}`);
+      }
+      return {
+        role,
+        utxoCount: 3,
+        assets: options.assets ?? { lovelace: "12000000" },
       };
     },
   };

@@ -8,6 +8,7 @@ export const CLAIM_TAIL_RECEIPT_STAGE_NAME = "claim-tail-and-receipt";
 export const CLAIM_TAIL_MAX_BATCHES_ENV = "RECLAIM_E2E_CLAIM_TAIL_MAX_BATCHES";
 
 const DEFAULT_COMPROMISED_WALLET_ROLE = "compromised_user";
+const SAFE_WALLET_ROLE = "safe_claim_destination";
 const DEFAULT_MAX_TAIL_BATCHES = 10;
 const DEFAULT_TAIL_BATCH_SIZE = 4;
 
@@ -58,6 +59,7 @@ export async function runClaimTailAndReceiptStage(options = {}) {
         claimBundles,
         tailBatches,
         remainingMatchingUtxos: 0,
+        safeWalletEvidence: await safeWalletBalanceEvidence(walletHarness, claimBundles),
       });
     }
 
@@ -100,7 +102,7 @@ export async function runClaimTailAndReceiptStage(options = {}) {
     claimBundles.push(claimStage.claimBundle);
     tailBatches.push({
       batch: batchIndex,
-      selectedOutrefs: claimStage.claimBundle.selectedOutrefs,
+      selectedOutrefCount: Array.isArray(claimStage.claimBundle.selectedOutrefs) ? claimStage.claimBundle.selectedOutrefs.length : 0,
       txHash: claimStage.claimBundle.txHash,
       reviewHash: claimStage.claimBundle.reviewHash,
       evaluation: claimStage.claimBundle.evaluation,
@@ -118,6 +120,7 @@ export async function runClaimTailAndReceiptStage(options = {}) {
       claimBundles,
       tailBatches,
       remainingMatchingUtxos: 0,
+      safeWalletEvidence: await safeWalletBalanceEvidence(walletHarness, claimBundles),
     });
   }
   throw new PreprodClaimTailStageError(
@@ -126,7 +129,7 @@ export async function runClaimTailAndReceiptStage(options = {}) {
   );
 }
 
-async function writeReceipt({ outputDir, mkdir, writeFile, page, artifacts, claimBundles, tailBatches, remainingMatchingUtxos }) {
+async function writeReceipt({ outputDir, mkdir, writeFile, page, artifacts, claimBundles, tailBatches, remainingMatchingUtxos, safeWalletEvidence }) {
   const screenshotPath = page ? path.join(outputDir, "screenshots", "claim-tail-and-receipt.png") : null;
   if (screenshotPath) {
     mkdir(path.dirname(screenshotPath), { recursive: true });
@@ -144,10 +147,16 @@ async function writeReceipt({ outputDir, mkdir, writeFile, page, artifacts, clai
     remainingMatchingUtxos,
     claimCount: claimBundles.length,
     claimTxHashes: claimBundles.map((bundle) => bundle.txHash),
-    claimedOutrefs: claimBundles.flatMap((bundle) => bundle.selectedOutrefs ?? []),
+    claimedOutrefCount: claimBundles.reduce((sum, bundle) => sum + (Array.isArray(bundle.selectedOutrefs) ? bundle.selectedOutrefs.length : 0), 0),
     tailBatches,
-    reviewedDestinationValue: reviewedDestinationValue(claimBundles),
-    safeWalletBalanceVerified: false,
+    reviewedDestinationValue: safeWalletEvidence.reviewedDestinationValue,
+    safeWalletBalanceVerified: true,
+    safeWalletBalance: {
+      role: SAFE_WALLET_ROLE,
+      utxoCount: safeWalletEvidence.utxoCount,
+      assets: safeWalletEvidence.assets,
+      containsReviewedDestinationValue: true,
+    },
     artifacts: artifacts.map((artifact) => path.relative(outputDir, artifact)),
     txCborWritten: false,
     witnessSetWritten: false,
@@ -167,6 +176,7 @@ async function writeReceipt({ outputDir, mkdir, writeFile, page, artifacts, clai
       claimTxHashes: receipt.claimTxHashes,
       reviewedDestinationValue: receipt.reviewedDestinationValue,
       safeWalletBalanceVerified: receipt.safeWalletBalanceVerified,
+      safeWalletBalance: receipt.safeWalletBalance,
     },
   };
 }
@@ -228,6 +238,40 @@ function reviewedDestinationValue(claimBundles) {
     }
   }
   return Object.fromEntries([...totals.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([unit, quantity]) => [unit, quantity.toString()]));
+}
+
+async function safeWalletBalanceEvidence(walletHarness, claimBundles) {
+  if (typeof walletHarness.roleUtxoAssetSummary !== "function") {
+    throw new PreprodClaimTailStageError(
+      "safe_wallet_balance_unavailable",
+      "CIP-30 harness must expose a local aggregate safe-wallet asset summary for final receipt evidence.",
+    );
+  }
+  const summary = await walletHarness.roleUtxoAssetSummary(SAFE_WALLET_ROLE);
+  const reviewed = reviewedDestinationValue(claimBundles);
+  if (Object.keys(reviewed).length === 0) {
+    throw new PreprodClaimTailStageError(
+      "safe_wallet_reviewed_value_missing",
+      "Reviewed destination value is required before safe-wallet balance evidence can be verified.",
+    );
+  }
+  const assets = summary?.assets && typeof summary.assets === "object" ? summary.assets : {};
+  for (const [unit, expectedRaw] of Object.entries(reviewed)) {
+    const actual = BigInt(assets[unit] ?? "0");
+    const expected = BigInt(expectedRaw);
+    if (actual < expected) {
+      throw new PreprodClaimTailStageError(
+        "safe_wallet_balance_missing_reviewed_value",
+        "Safe wallet aggregate balance does not contain the reviewed destination value.",
+      );
+    }
+  }
+  return {
+    reviewedDestinationValue: reviewed,
+    role: SAFE_WALLET_ROLE,
+    utxoCount: Number.isInteger(summary?.utxoCount) ? summary.utxoCount : 0,
+    assets,
+  };
 }
 
 function assertCredential(value) {

@@ -114,6 +114,21 @@ export async function createCip30WalletHarness({
       const masterXPrv = await masterXprvFromSeedPhrase(state.mnemonic);
       return Buffer.from(masterXPrv).toString("base64");
     },
+    async roleUtxoAssetSummary(role) {
+      if (role !== "safe_claim_destination") {
+        throw new Cip30HarnessError("wallet_role_balance_forbidden", "Only safe_claim_destination balance summaries are available.");
+      }
+      const state = roles.get(role);
+      if (!state) {
+        throw new Cip30HarnessError("wallet_role_unknown", `Unknown preprod wallet role: ${role}`);
+      }
+      const utxos = await state.provider.getUtxos(state.address);
+      return {
+        role: state.role,
+        utxoCount: Array.isArray(utxos) ? utxos.length : 0,
+        assets: stringifyAssets(sumAssets(Array.isArray(utxos) ? utxos : [])),
+      };
+    },
   };
 }
 
@@ -334,6 +349,20 @@ function redactCredential(value) {
     return "[redacted-credential]";
   }
   return `${value.slice(0, 8)}...${value.slice(-8)}`;
+}
+
+function sumAssets(utxos) {
+  const totals = {};
+  for (const utxo of utxos) {
+    for (const [unit, quantity] of Object.entries(utxo.assets ?? {})) {
+      totals[unit] = (totals[unit] ?? 0n) + BigInt(quantity);
+    }
+  }
+  return totals;
+}
+
+function stringifyAssets(assets) {
+  return Object.fromEntries(Object.entries(assets).sort(([left], [right]) => left.localeCompare(right)).map(([unit, quantity]) => [unit, quantity.toString()]));
 }
 
 export function redactHarnessArtifact(value) {
