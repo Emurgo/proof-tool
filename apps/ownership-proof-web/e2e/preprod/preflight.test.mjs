@@ -141,6 +141,24 @@ describe("Phase 9A preprod preflight", () => {
     expect(result.errors.map((error) => error.code)).toContain("wallet_address_not_preprod");
   });
 
+  it("accepts local wallet arrays keyed by each entry role", () => {
+    const result = validatePreprodWalletFile({
+      wallets: [
+        { role: "deployer", mnemonic: words("able", 12) },
+        { role: "reclaim_funder", mnemonic: words("baker", 12) },
+        { role: "compromised_user", mnemonic: words("cable", 12) },
+        { role: "safe_claim_destination", mnemonic: words("delta", 12) },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.summary.deployer).toMatchObject({
+      configured: true,
+      mnemonicWordCount: 12,
+    });
+    expect(result.summary.safe_claim_destination.configured).toBe(true);
+  });
+
   it("requires the deployment manifest to be Preprod and match the current clean commit", () => {
     expect(
       validatePreprodManifest(

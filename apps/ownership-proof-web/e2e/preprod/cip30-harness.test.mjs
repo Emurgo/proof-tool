@@ -93,7 +93,7 @@ describe("preprod CIP-30 wallet harness", () => {
   it("loads wallet JSON from the gated local env path", async () => {
     const repo = tempDir();
     const walletPath = path.join(repo, "wallets.local.json");
-    writeFile(walletPath, JSON.stringify(validWalletFile()));
+    writeFile(walletPath, JSON.stringify(validWalletArrayFile()));
 
     const harness = await loadCip30HarnessFromEnv({
       env: {
@@ -163,6 +163,15 @@ function validWalletFile() {
       mnemonic:
         "current salt affair theory oil acoustic fun evidence present dose cook bicycle warrior arch real pluck surprise dice enlist same echo pulp tooth record",
     },
+  };
+}
+
+function validWalletArrayFile() {
+  return {
+    wallets: Object.entries(validWalletFile()).map(([role, config]) => ({
+      role,
+      ...config,
+    })),
   };
 }
 

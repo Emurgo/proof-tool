@@ -127,9 +127,7 @@ export function validateExecutionGate(env) {
 }
 
 export function validatePreprodWalletFile(raw) {
-  const errors = [];
-  const root = objectValue(raw, "wallet_file", errors);
-  const rolesRoot = objectValue(root.roles ?? root.wallets ?? root, "wallet_file.roles", errors);
+  const { rolesRoot, errors } = normalizePreprodWalletRoles(raw);
 
   const normalized = {};
   const secretFingerprints = new Map();
@@ -186,6 +184,24 @@ export function validatePreprodWalletFile(raw) {
   }
 
   return { ok: true, errors: [], summary: normalized };
+}
+
+export function normalizePreprodWalletRoles(raw) {
+  const errors = [];
+  const root = objectValue(raw, "wallet_file", errors);
+  if (errors.length > 0) {
+    return { rolesRoot: {}, errors };
+  }
+
+  const candidate = root.roles ?? root.wallets ?? root;
+  if (Array.isArray(candidate)) {
+    return { rolesRoot: walletArrayToRoleMap(candidate, errors), errors };
+  }
+
+  return {
+    rolesRoot: objectValue(candidate, "wallet_file.roles", errors),
+    errors,
+  };
 }
 
 export function validatePreprodManifest(manifest, currentCommit) {
@@ -755,6 +771,42 @@ function objectValue(value, field, errors) {
     return {};
   }
   return value;
+}
+
+function walletArrayToRoleMap(entries, errors) {
+  const roles = {};
+  const allowed = new Set(REQUIRED_WALLET_ROLES);
+  for (const [index, entry] of entries.entries()) {
+    const field = `wallet_file.wallets[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      errors.push({
+        code: "wallet_role_entry_invalid",
+        field,
+        message: "Wallet role entries must be JSON objects.",
+      });
+      continue;
+    }
+
+    const role = typeof entry.role === "string" ? entry.role.trim() : "";
+    if (!allowed.has(role)) {
+      errors.push({
+        code: "wallet_role_unknown",
+        field: `${field}.role`,
+        message: "Wallet role entries must declare one of the required preprod roles.",
+      });
+      continue;
+    }
+    if (roles[role]) {
+      errors.push({
+        code: "wallet_role_duplicate",
+        field: `${field}.role`,
+        message: `Duplicate ${role} preprod test wallet role.`,
+      });
+      continue;
+    }
+    roles[role] = entry;
+  }
+  return roles;
 }
 
 function preflightFailure(errors, context = {}) {

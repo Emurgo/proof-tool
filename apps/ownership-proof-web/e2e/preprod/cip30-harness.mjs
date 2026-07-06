@@ -4,6 +4,7 @@ import { Blockfrost, Koios, Lucid, getAddressDetails, walletFromSeed } from "@lu
 import { masterXprvFromSeedPhrase } from "@proof-zk-recovery/proof-tool-client";
 import {
   REQUIRED_WALLET_ROLES,
+  normalizePreprodWalletRoles,
   redactAddress,
   redactSensitiveValue,
   validatePreprodWalletFile,
@@ -252,7 +253,7 @@ function resolveExistingLocalPath(configuredPath, options, exists) {
 }
 
 function walletRoleConfig(walletFile, role) {
-  const rolesRoot = walletFile.roles ?? walletFile.wallets ?? walletFile;
+  const { rolesRoot } = normalizePreprodWalletRoles(walletFile);
   return rolesRoot[role];
 }
 
