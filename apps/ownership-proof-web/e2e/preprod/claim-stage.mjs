@@ -196,13 +196,24 @@ async function fetchAppJson(fetchFn, baseUrl, endpoint, init) {
 async function readErrorDetail(response) {
   try {
     const body = await response.json();
-    const code = typeof body?.code === "string" ? body.code : "";
-    const message = typeof body?.error === "string" ? body.error : "";
+    const code = typeof body?.code === "string" && /^[a-z0-9_:-]+$/iu.test(body.code) ? body.code : "";
+    const message = typeof body?.error === "string" ? sanitizeHttpErrorMessage(body.error) : "";
     const parts = [code, message].filter(Boolean);
     return parts.length > 0 ? `: ${parts.join(": ")}` : "";
   } catch {
     return "";
   }
+}
+
+function sanitizeHttpErrorMessage(value) {
+  return value
+    .replace(/\b(addr(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
+    .replace(/\b(stake(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
+    .replace(/\b[0-9a-f]{96,}\b/giu, "[hex-redacted]")
+    .replace(/\b[A-Za-z0-9_-]{96,}\b/gu, "[token-redacted]")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 360);
 }
 
 function assertClaimBuild(build, selectedOutrefs) {

@@ -789,14 +789,41 @@ function percentCeil(value: bigint, max: bigint): number {
   return Number((value * 100n + max - 1n) / max);
 }
 
-function sanitizeProviderSubmitError(error: unknown): string {
-  const raw = error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error);
+export function sanitizeProviderSubmitError(error: unknown): string {
+  const raw = providerSubmitErrorMessage(error);
   const normalized = (raw || "submission failed")
-    .replace(/\b[0-9a-f]{128,}\b/giu, "[hex-redacted]")
+    .replace(/\b(addr(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
+    .replace(/\b(stake(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
+    .replace(/\b[0-9a-f]{96,}\b/giu, "[hex-redacted]")
+    .replace(/\b[A-Za-z0-9_-]{96,}\b/gu, "[token-redacted]")
+    .replace(/((?:project_id|api[-_ ]?key|authorization|bearer)["':=\s]+)[A-Za-z0-9_.-]+/giu, "$1[redacted]")
     .replace(/(mnemonic|seed|phrase|xprv|private|secret|token|proof|witness|cbor)\s*[:=]\s*\S+/giu, "$1=[redacted]")
     .replace(/\s+/gu, " ")
     .trim();
-  return normalized.slice(0, 1000) || "submission failed";
+  return normalized.slice(0, 480) || "submission failed";
+}
+
+function providerSubmitErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    if (typeof record.message === "string") {
+      return record.message;
+    }
+    if (typeof record.error === "string") {
+      return record.error;
+    }
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "";
+  }
 }
 
 function parseTransactionHash(txCbor: string, field: string): string {
