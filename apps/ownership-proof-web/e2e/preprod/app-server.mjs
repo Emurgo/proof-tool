@@ -41,7 +41,7 @@ export async function startPreprodAppServer(options = {}) {
   const baseUrl = `http://${host}:${port}`;
   const appDir = options.appDir ?? APP_DIR;
   const command = options.command ?? "pnpm";
-  const args = options.args ?? ["dev", "--", "--hostname", host, "--port", String(port)];
+  const args = options.args ?? ["dev", "--hostname", host, "--port", String(port)];
   const spawn = options.spawn ?? defaultSpawn;
   const child = spawn(command, args, {
     cwd: appDir,

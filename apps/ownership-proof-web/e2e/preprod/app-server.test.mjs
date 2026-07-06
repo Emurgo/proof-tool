@@ -58,7 +58,7 @@ describe("preprod app server helper", () => {
     expect(target.external).toBe(false);
     expect(spawn).toHaveBeenCalledWith(
       "pnpm",
-      ["dev", "--", "--hostname", "127.0.0.1", "--port", String(DEFAULT_APP_PORT)],
+      ["dev", "--hostname", "127.0.0.1", "--port", String(DEFAULT_APP_PORT)],
       expect.objectContaining({
         cwd: expect.stringContaining("apps/ownership-proof-web"),
         stdio: ["ignore", "pipe", "pipe"],
