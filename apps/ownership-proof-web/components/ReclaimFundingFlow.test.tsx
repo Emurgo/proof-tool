@@ -175,6 +175,13 @@ describe("ReclaimFundingFlow", () => {
         }),
       }),
     );
+
+    fireEvent.change(screen.getByPlaceholderText("0"), { target: { value: "3" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Transaction submitted")).not.toBeInTheDocument();
+      expect(screen.queryByText("Datum CBOR")).not.toBeInTheDocument();
+    });
   });
 });
 

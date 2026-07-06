@@ -151,6 +151,7 @@ export function ReclaimFundingFlow() {
     setFailure("");
     setInventory(null);
     setBuiltTx(null);
+    setSubmittedTxHash("");
     try {
       const response = await postJSON<WalletAssetsResponse>("/reclaim-api/wallet-assets", {
         changeAddress,
@@ -224,6 +225,11 @@ export function ReclaimFundingFlow() {
     setChangeAddress("");
     setWalletAddresses([]);
     setInventory(null);
+    setBuiltTx(null);
+    setSubmittedTxHash("");
+  }
+
+  function resetReviewedTransaction() {
     setBuiltTx(null);
     setSubmittedTxHash("");
   }
@@ -326,8 +332,7 @@ export function ReclaimFundingFlow() {
                 value={compromisedCredential}
                 onChange={(event) => {
                   setCompromisedCredential(event.target.value);
-                  setBuiltTx(null);
-                  setSubmittedTxHash("");
+                  resetReviewedTransaction();
                 }}
                 placeholder={targetPlaceholder}
               />
@@ -349,8 +354,7 @@ export function ReclaimFundingFlow() {
                   value={adaAmount}
                   onChange={(event) => {
                     setAdaAmount(event.target.value);
-                    setBuiltTx(null);
-                    setSubmittedTxHash("");
+                    resetReviewedTransaction();
                   }}
                   inputMode="decimal"
                   placeholder="0.000000"
@@ -369,7 +373,10 @@ export function ReclaimFundingFlow() {
                     <span>Asset unit</span>
                     <input
                       value={token.unit}
-                      onChange={(event) => updateTokenRow(index, { unit: event.target.value }, setNativeTokens)}
+                      onChange={(event) => {
+                        updateTokenRow(index, { unit: event.target.value }, setNativeTokens);
+                        resetReviewedTransaction();
+                      }}
                       placeholder="policyId + tokenName hex"
                     />
                   </label>
@@ -377,7 +384,10 @@ export function ReclaimFundingFlow() {
                     <span>Quantity</span>
                     <input
                       value={token.quantity}
-                      onChange={(event) => updateTokenRow(index, { quantity: event.target.value }, setNativeTokens)}
+                      onChange={(event) => {
+                        updateTokenRow(index, { quantity: event.target.value }, setNativeTokens);
+                        resetReviewedTransaction();
+                      }}
                       inputMode="numeric"
                       placeholder="0"
                     />
@@ -386,7 +396,10 @@ export function ReclaimFundingFlow() {
                     className="icon-button"
                     type="button"
                     aria-label={`Remove native token ${index + 1}`}
-                    onClick={() => removeTokenRow(token.id, setNativeTokens)}
+                    onClick={() => {
+                      removeTokenRow(token.id, setNativeTokens);
+                      resetReviewedTransaction();
+                    }}
                     disabled={nativeTokens.length === 1}
                   >
                     <Trash2 size={17} aria-hidden="true" />
@@ -396,7 +409,14 @@ export function ReclaimFundingFlow() {
             </div>
 
             <div className="artifact-actions">
-              <button className="secondary-button" type="button" onClick={() => addTokenRow(setNativeTokens)}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  addTokenRow(setNativeTokens);
+                  resetReviewedTransaction();
+                }}
+              >
                 <Plus size={17} aria-hidden="true" />
                 Token
               </button>

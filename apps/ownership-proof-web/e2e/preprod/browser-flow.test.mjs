@@ -62,6 +62,7 @@ describe("preprod browser bootstrap", () => {
         page: fake.page,
         walletHarness,
         outputDir,
+        previousFundingTxHashes: ["f".repeat(64)],
       }),
     );
     expect(claimDiscoveryStageRunner).toHaveBeenCalledWith(
@@ -268,6 +269,9 @@ function fakeFundingStage(outputDir) {
   return {
     ok: true,
     artifacts: [jsonPath, screenshotPath],
+    summary: {
+      submittedTxHash: "f".repeat(64),
+    },
   };
 }
 

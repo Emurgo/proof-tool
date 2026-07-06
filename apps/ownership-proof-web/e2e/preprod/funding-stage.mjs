@@ -101,6 +101,7 @@ export async function runNativeAssetFundingStage(options = {}) {
   const nativeAssetQuantity = env[NATIVE_ASSET_QUANTITY_ENV]?.trim() || DEFAULT_NATIVE_ASSET_QUANTITY;
   const nativeReclaimCount = parseNativeCount(env[NATIVE_RECLAIM_COUNT_ENV]?.trim() || String(DEFAULT_NATIVE_RECLAIM_COUNT));
   const settlementWaitMs = parseFundingSettlementMs(env);
+  const seenTxHashes = new Set(normalizeTxHashList(options.previousFundingTxHashes));
   validateAdaAmount(NATIVE_ADA_AMOUNT_ENV, adaAmount);
   validateNativeAssetUnit(nativeAssetUnit);
   validateNativeAssetQuantity(nativeAssetQuantity);
@@ -117,7 +118,9 @@ export async function runNativeAssetFundingStage(options = {}) {
         unit: nativeAssetUnit,
         quantity: nativeAssetQuantity,
       },
+      disallowedTxHashes: seenTxHashes,
     });
+    seenTxHashes.add(transaction.reviewedTxHash);
     const screenshotPath = path.join(outputDir, "screenshots", `fund-native-asset-reclaims-${index + 1}.png`);
     mkdir(path.dirname(screenshotPath), { recursive: true });
     await page.screenshot({
@@ -178,7 +181,7 @@ async function connectFundingWallet(page, fundingRole) {
   await page.getByText(/CIP-30 wallet address/iu).waitFor();
 }
 
-async function buildSignSubmitFundingTransaction(page, { compromisedCredential, adaAmount, nativeAsset = null }) {
+async function buildSignSubmitFundingTransaction(page, { compromisedCredential, adaAmount, nativeAsset = null, disallowedTxHashes = new Set() }) {
   await page.getByLabel("Payment key credential").fill(compromisedCredential);
   await page.getByLabel("ADA amount").fill(adaAmount);
   if (nativeAsset) {
@@ -193,6 +196,12 @@ async function buildSignSubmitFundingTransaction(page, { compromisedCredential, 
     throw new PreprodFundingStageError("funding_build_failed", buildResult.message || "Funding transaction build failed.");
   }
   const reviewedTxHash = sanitizeText(await page.locator(".review-item").filter({ hasText: "Tx hash" }).locator("code").textContent());
+  if (disallowedTxHashes.has(reviewedTxHash)) {
+    throw new PreprodFundingStageError(
+      "funding_review_tx_reused",
+      "Funding page reused a previously reviewed transaction after asset changes.",
+    );
+  }
   await page.getByRole("button", { name: /sign and submit/iu }).click();
   const submitResult = await waitForSubmitResult(page);
   if (submitResult.status === "failed") {
@@ -298,6 +307,13 @@ function parseFundingSettlementMs(env) {
     throw new PreprodFundingStageError("funding_settlement_ms_invalid", `${FUNDING_SETTLEMENT_MS_ENV} must be a non-negative integer.`);
   }
   return Number(configured);
+}
+
+function normalizeTxHashList(values) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values.map((value) => (typeof value === "string" ? value.trim() : "")).filter(Boolean);
 }
 
 async function waitForFundingSettlement(sleep, settlementWaitMs) {

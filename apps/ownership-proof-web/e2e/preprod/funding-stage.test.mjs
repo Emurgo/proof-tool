@@ -127,7 +127,10 @@ describe("ADA-only preprod funding stage", () => {
 describe("native-asset preprod funding stage", () => {
   it("drives repeated native-asset funding transactions and captures redacted artifacts", async () => {
     const outputDir = tempDir();
-    const page = fakeFundingPage();
+    const page = fakeFundingPage({
+      reviewedTxHashes: ["native-reviewed-hash-1", "native-reviewed-hash-2"],
+      submittedTxHashes: ["native-submitted-hash-1", "native-submitted-hash-2"],
+    });
 
     const result = await runNativeAssetFundingStage({
       env: {
@@ -192,6 +195,30 @@ describe("native-asset preprod funding stage", () => {
     expect(JSON.stringify(artifact)).not.toContain(compromisedCredential);
   });
 
+  it("rejects a reused reviewed funding transaction before signing", async () => {
+    const page = fakeFundingPage({
+      reviewedTxHashes: ["previous-reviewed-hash"],
+    });
+
+    await expect(
+      runNativeAssetFundingStage({
+        env: {
+          RECLAIM_E2E_NATIVE_ADA_AMOUNT: "2.25",
+          RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+          RECLAIM_E2E_NATIVE_ASSET_QUANTITY: "3",
+          RECLAIM_E2E_NATIVE_RECLAIM_COUNT: "1",
+        },
+        page,
+        walletHarness: fakeWalletHarness(),
+        outputDir: tempDir(),
+        previousFundingTxHashes: ["previous-reviewed-hash"],
+      }),
+    ).rejects.toMatchObject({
+      code: "funding_review_tx_reused",
+    });
+    expect(page.calls).not.toContainEqual(["click", "sign and submit"]);
+  });
+
   it("rejects missing native asset unit before touching the page", async () => {
     const page = fakeFundingPage();
 
@@ -226,6 +253,10 @@ function fakeWalletHarness() {
 
 function fakeFundingPage(options = {}) {
   const calls = [];
+  const state = {
+    reviewedTxHashes: [...(options.reviewedTxHashes ?? [])],
+    submittedTxHashes: [...(options.submittedTxHashes ?? [])],
+  };
   return {
     calls,
     getByLabel(label) {
@@ -260,7 +291,7 @@ function fakeFundingPage(options = {}) {
       };
     },
     locator(selector) {
-      return fakeLocator(selector, calls, options);
+      return fakeLocator(selector, calls, options, state);
     },
     screenshot: vi.fn(async ({ path: screenshotPath }) => {
       mkdirSync(path.dirname(screenshotPath), { recursive: true });
@@ -270,7 +301,7 @@ function fakeFundingPage(options = {}) {
   };
 }
 
-function fakeLocator(selector, calls, options) {
+function fakeLocator(selector, calls, options, state) {
   if (selector === 'section[aria-labelledby="assets-section"] .inventory-empty') {
     return {
       filter(options) {
@@ -303,7 +334,7 @@ function fakeLocator(selector, calls, options) {
     return {
       filter: () => ({
         locator: () => ({
-          textContent: async () => "reviewed-body-hash",
+          textContent: async () => state.reviewedTxHashes.shift() ?? "reviewed-body-hash",
         }),
       }),
     };
@@ -311,7 +342,7 @@ function fakeLocator(selector, calls, options) {
   if (selector === ".result-band.ok span") {
     return {
       last: () => ({
-        textContent: async () => "submitted-funding-hash",
+        textContent: async () => state.submittedTxHashes.shift() ?? "submitted-funding-hash",
       }),
     };
   }

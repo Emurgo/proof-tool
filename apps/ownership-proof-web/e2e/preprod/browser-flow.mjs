@@ -108,6 +108,7 @@ export async function runPreprodBrowserBootstrap(options = {}) {
       page,
       walletHarness,
       outputDir,
+      previousFundingTxHashes: collectSubmittedTxHashes(fundingStage),
     });
     if (Array.isArray(nativeFundingStage?.artifacts)) {
       artifacts.push(...nativeFundingStage.artifacts);
@@ -202,4 +203,21 @@ async function safeClose(value) {
   if (value && typeof value.close === "function") {
     await value.close();
   }
+}
+
+function collectSubmittedTxHashes(stageResult) {
+  const hashes = [];
+  const single = stageResult?.summary?.submittedTxHash;
+  if (typeof single === "string" && single.trim()) {
+    hashes.push(single.trim());
+  }
+  const many = stageResult?.summary?.submittedTxHashes;
+  if (Array.isArray(many)) {
+    for (const hash of many) {
+      if (typeof hash === "string" && hash.trim()) {
+        hashes.push(hash.trim());
+      }
+    }
+  }
+  return hashes;
 }
