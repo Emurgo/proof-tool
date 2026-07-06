@@ -36,7 +36,7 @@ describe("claim discovery preprod browser stage", () => {
       ["click", "/Proof Tool Preprod compromised user/iu"],
       ["click", "/Connect impacted wallet/iu"],
       ["waitFor", "heading", "Available claims"],
-      ["textContent", ".claim-summary-tile", "Matching UTxOs"],
+      ["textContent", ".claim-summary-tile", "Matching UTxOs", "strong"],
       ["screenshot", path.join(outputDir, "screenshots", "discover-matching-claims.png")],
     ]);
 
@@ -125,10 +125,14 @@ function fakeClaimPage({ matchingCount }) {
       return {
         filter({ hasText }) {
           return {
-            textContent: vi.fn(async () => {
-              calls.push(["textContent", selector, hasText]);
-              return `${hasText} ${matchingCount} Across 1 credential`;
-            }),
+            locator(childSelector) {
+              return {
+                textContent: vi.fn(async () => {
+                  calls.push(["textContent", selector, hasText, childSelector]);
+                  return String(matchingCount);
+                }),
+              };
+            },
           };
         },
       };
