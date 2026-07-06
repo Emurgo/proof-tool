@@ -49,6 +49,15 @@ describe("deploy-or-verify preprod manifest stage", () => {
     expect(() => verifyDeploymentPair(validDeploymentResponse(), claim, preflight())).toThrow(/verifier_vk_hash mismatch/u);
   });
 
+  it("rejects app endpoints for a stale deployment with the current source commit", () => {
+    const reclaim = validDeploymentResponse();
+    const claim = validClaimDeploymentResponse();
+    reclaim.deployment.id = "preprod:ffffffffffffffffffffffffffffffffffffffffffffffffffffffff:1234567890abcdef1234567890abcdef12345678";
+    claim.deployment.id = reclaim.deployment.id;
+
+    expect(() => verifyDeploymentPair(reclaim, claim, preflight())).toThrow(/Deployment endpoint id does not match/u);
+  });
+
   it("rejects unsupported claim capabilities", () => {
     const claim = validClaimDeploymentResponse();
     claim.capabilities.transactionBuild.referenceScriptsConfigured = false;
@@ -142,6 +151,9 @@ function preflight() {
     context: {
       git: {
         commit: "1234567890abcdef1234567890abcdef12345678",
+      },
+      manifest: {
+        deployment_id: "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1234567890abcdef1234567890abcdef12345678",
       },
     },
   };

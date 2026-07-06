@@ -77,6 +77,13 @@ export function verifyDeploymentPair(reclaim, claim, preflight) {
       "Deployment endpoint source commit does not match the clean preflight git commit.",
     );
   }
+  const expectedDeploymentId = preflight?.context?.manifest?.deployment_id;
+  if (expectedDeploymentId && reclaimDeployment.id !== expectedDeploymentId) {
+    throw new PreprodDeploymentStageError(
+      "deployment_id_preflight_mismatch",
+      "Deployment endpoint id does not match the clean preflight manifest.",
+    );
+  }
   if (reclaimDeployment.network !== "Preprod" || reclaimDeployment.networkId !== 0) {
     throw new PreprodDeploymentStageError("deployment_network_not_preprod", "Deployment endpoints must report Preprod network id 0.");
   }
