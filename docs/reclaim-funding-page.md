@@ -69,6 +69,12 @@ uses these web-owned API routes:
 - `POST /reclaim-api/build`
 - `POST /reclaim-api/submit`
 
+The React flow is `components/ReclaimFundingFlow.tsx`; shared `/reclaim` and
+`/claim` shell primitives are in `components/ReclaimShell.tsx`. Request types
+and browser validation live in `lib/reclaim`, while provider queries,
+manifest/config loading, review binding, transaction construction, inspection,
+and submission live in `lib/reclaim-server`.
+
 ## What The Page Does Not Do
 
 The page does not:
@@ -310,3 +316,29 @@ authorize reclaim for that owner.
 Reconnect the wallet and confirm that the wallet exposes a CIP-30 change or
 used payment address. The page refuses to build a transaction without a usable
 CIP-30-provided payment address.
+
+## Developer Tests And UI Fixtures
+
+The six product steps are Deployment, Funding wallet, Compromised credential,
+Assets, Review transaction, and Submit. The component keeps reviewed
+transactions invalidated when wallet, credential, or selected asset state
+changes; tests assert unchanged build/submit payloads and partial signing via
+`signTx(txCbor, true)`.
+
+```bash
+pnpm --dir apps/ownership-proof-web test components/ReclaimFundingFlow.test.tsx
+pnpm --dir apps/ownership-proof-web typecheck
+```
+
+Deterministic rendering states are available outside production, or explicitly
+with `NEXT_PUBLIC_LOCK_FUNDS_UI_FIXTURE=1`, at
+`/reclaim?fixtureState=<state>`. Capture desktop and mobile review artifacts
+with:
+
+```bash
+pnpm --dir apps/ownership-proof-web visual:lock-funds
+```
+
+Output is under `output/playwright/lock-funds/`. Review mode checks that every
+state renders and records visual differences; `visual:lock-funds:strict` adds
+the generated-reference pixel threshold.

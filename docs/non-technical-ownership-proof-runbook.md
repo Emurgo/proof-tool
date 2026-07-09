@@ -59,14 +59,21 @@ into the browser. Users should not type a pairing token.
 
 The website posts proof artifacts to its own `/api/verify` route. In local
 Next-only development, `PROOF_VERIFIER_DEV_URL` is a developer-only rewrite to
-the local Go verifier. On Vercel, `/api/*` is routed directly to the Go verifier
-service from the root `vercel.json`; users never see or type a verifier URL.
+the local Go verifier. The production Vercel configuration does not deploy this
+legacy verifier or expose `/api/verify`. Use the three fixture commands above
+for this fixture-only flow.
 
 ## Real Prover/Verifier Smoke
 
 The CLI `prove --master-xprv` path is for the existing development interface and
 test vectors only. The production-shaped helper path sends the master XPrv in
 the local request body instead of on the helper process command line.
+
+Start the pinned Go verifier and the local credential-proof webapp together:
+
+```bash
+scripts/dev-credential-proof.sh
+```
 
 Build the binary:
 
@@ -142,13 +149,14 @@ Deploy from `/home/gumbo/playground/proof-zk-recovery/proof-tool` so Vercel
 uses the root `vercel.json`.
 
 - `web` is the Next.js service rooted at `apps/ownership-proof-web`.
-- `verifier` is the Go service rooted at this repo and built from
-  `cmd/api/main.go`.
-- Public `/api/:path*` requests route to the Go verifier service.
-- All other public requests route to the Next.js web service.
+- All public requests route to the Next.js web service.
+- `/dev/credential-proof` and `/api/verify` both return 404 in Vercel Preview
+  and Production deployments.
+- `scripts/dev-credential-proof.sh` starts the Go verifier and Next.js with the
+  developer-only `/api/*` rewrite for local development.
 
-The Go verifier pins the verifying key with hash
+The local Go verifier pins the verifying key with hash
 `blake2b256:e896ad2b9bceac9abe80de7a4ec91a9e41a55582b9b58fe3797bc203662b7c03`.
-Production helper builds must prove with the matching published proving-key
+Local helper builds must prove with the matching published proving-key
 bundle. Do not let production helpers silently create a fresh local Groth16 key
-bundle, because those proofs will not match the hosted verifier.
+bundle, because those proofs will not match the pinned local verifier.

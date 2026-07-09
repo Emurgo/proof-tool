@@ -1,0 +1,148 @@
+# Browser Proving
+
+## Status And Scope
+
+The destination-bound browser prover is implemented and locally accepted in
+the production claim flow. Hosted enablement is still controlled entirely by
+the deployment manifest's `proof.browser_proving` descriptor; absent or
+disabled descriptors fail closed and keep Proof Helper Desktop available.
+
+The browser provider changes where the same destination proof is computed. It
+does not change the circuit, proof artifact, Cardano bytes, verifier key, or
+contract semantics.
+
+## Runtime Map
+
+- `cmd/wasm-prover`: main Go WASM entrypoint. Registers `proveDestination`,
+  `preflightProofAssets`, and `__wasmProverReady`.
+- `cmd/msmworker`: Go WASM MSM kernel used by nested workers.
+- `internal/streampk`: proving-key section index and file/HTTP range source.
+- `internal/streamprove`: streaming Groth16 adapter.
+- `internal/msmengine`: CPU fallback, sharded worker transport, authenticated
+  section fetch, pinned point decoding, scheduling, and trace hooks.
+- `internal/proofassets`: signed chunk-manifest generation and validation.
+- `apps/ownership-proof-web/public/proof-runtime/prover-worker.js`: dedicated
+  proof-worker orchestrator.
+- `apps/ownership-proof-web/public/proof-runtime/msm-worker.js`: nested MSM
+  worker bootstrap.
+- `apps/ownership-proof-web/lib/proving/capability.ts`: cheap browser
+  capability checks.
+- `apps/ownership-proof-web/lib/proving/browser-wasm.ts`: claim-provider
+  preflight, sequential batch
+  proving, cancellation, result gates, and error redaction.
+- `experiments/wasm-prover`: benchmark harness and diagnostics for the same
+  production packages; it is not a second production implementation.
+
+## Execution Flow
+
+The claim UI checks capability and signed assets before reading the recovery
+phrase. The prover worker loads `wasm_exec.js` and `proof-destination.wasm`, then
+the Go preflight validates:
+
+- key-manifest schema, signature, key version, circuit ID, and VK identity;
+- chunk-manifest signature and coherence with the key/deployment manifests;
+- CCS, VK, PK index, runtime WASM, worker JS, and worker WASM hashes/sizes;
+- deployment ID and final `vk_hash` equality with the claim deployment.
+
+During proving, the main worker derives/searches locally and sends scalar
+material plus signed section/range descriptors to nested MSM workers. Workers
+fetch public PK chunks, verify SHA-256 and BLAKE2b-256, decode pinned on-curve
+points, compute partial MSMs, zero scalar buffers, and return only partial
+results and timing data. The generated proof is verified locally before the
+provider returns an artifact.
+
+Proof requests in a claim batch run sequentially in one long-lived worker.
+Parallel proofs would exceed reasonable memory. Cancellation terminates the Go
+worker because an individual WASM MSM is not cooperatively cancellable.
+
+## Secret Boundary
+
+The phrase is normalized and converted to a 96-byte master XPrv in a local
+derivation worker. Browser proving moves the XPrv into the dedicated prover
+worker and never fetches a hosted API with it. Request JSON containing
+`master_xprv_hex` must not be logged, thrown, persisted, included in progress,
+or surfaced in diagnostics. The caller zeros its master byte array in
+`finally`; the worker is terminated after use.
+
+Only public, signed proof assets cross the network. Proof artifacts omit path
+metadata and must still pass the claim backend's recomputation and VK gates.
+
+## Accepted Tuning And Evidence
+
+`apps/ownership-proof-web/lib/proving/browser-wasm.ts` defaults to the measured
+production route:
+
+```text
+worker_count:            8
+shard_count:             32
+range_fetch_concurrency: 2
+pinned_decode:           true
+GOGC:                    50
+GOMEMLIMIT:              3000MiB
+```
+
+The accepted local O4/O2 run used `streampk-sharded-groth16`, completed proof
+construction in 111.461 seconds (115.900 seconds wall time), peaked at 2.316
+GiB main WASM heap, verified locally, and passed tamper rejection for the target
+credential, destination, public input, proof bytes, and `vk_hash`.
+
+Pinned decode skips redundant subgroup checks only for digest-authenticated PK
+chunks and still performs on-curve validation. Commitment Basis and
+BasisExpSigma use section-backed MSMs; WASM GC/memory-limit enforcement is
+temporarily suspended only around the solver to avoid the observed wasm32
+bad-pointer failure, then restored. `computeH` and scalar preparation overlap
+worker-bound stages without changing proof challenges.
+
+## Dependency Strategy
+
+Upstream gnark v0.15.0 does not expose the required BLS12-381 `ProveStream`
+seam. The reviewed additive patch is
+`experiments/wasm-prover/patches/prove-stream.patch`. `vendor/` must equal a
+clean `go mod vendor` plus that patch:
+
+```bash
+scripts/bootstrap-vendor.sh
+scripts/check-vendor-drift.sh
+```
+
+Never run plain `go mod vendor` and commit or build silently; it removes the
+streaming seam. Moving to a reviewed fork/upstream change remains preferable
+for a final production provenance story.
+
+## Build And Verification
+
+Build reproducible runtime files:
+
+```bash
+scripts/build-wasm-prover.sh
+```
+
+Run correctness checks:
+
+```bash
+go test ./internal/msmengine ./internal/streampk ./internal/streamprove ./internal/proofassets
+GOROOT="$(go env GOROOT)" N=2000 WORKERS=4 \
+  node experiments/wasm-prover/web/node-msm-check/run.mjs
+node experiments/wasm-prover/scripts/verify-tamper.mjs \
+  experiments/wasm-prover/output/o4-o2-section-commitment-w8-s32-rf2-local7-artifact.json
+```
+
+Run a guarded benchmark only on an otherwise idle host and compare
+uncontaminated summaries:
+
+```bash
+node experiments/wasm-prover/scripts/guarded-browser-benchmark.mjs \
+  --case local-check --workers 8 --shards 32 --rf 2 --cpu-list 0-15
+```
+
+See `browser-proving-asset-hosting.md` for asset generation/staging and
+`vercel-preprod-browser-proving-deployment-plan.md` for the still-open hosted
+rollout.
+
+## Further Optimization
+
+The durable results/backlog is `experiments/wasm-prover/optimization-backlog.md`.
+Do not accept a tuning change from compile-only or microbenchmark evidence: it
+must produce a real destination proof, verify locally, pass tamper tests,
+preserve artifact/Cardano bytes, record uncontaminated trace evidence, and stay
+within the approved memory envelope.

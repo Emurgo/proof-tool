@@ -1,6 +1,6 @@
 # Proof Assets Release Inventory
 
-Last verified: 2026-07-07.
+Last verified: 2026-07-09.
 
 This document records the current proof-assets release state in
 `Anastasia-Labs/proof-tool-release`. It is factual release inventory, not a
@@ -38,6 +38,32 @@ root.
 | `ownership-destination-v1-preprod-d2c944d-r3.cardano-vk.hex` | `1345` | Cardano verifier key bytes as hex. |
 | `ownership-destination-v1-preprod-d2c944d-r3.cardano-vk-format.txt` | `24` | `groth16-bls12-381-bsb22`. |
 | `reclaim-deployment-preprod-d2c944d-r3.json` | `2800` | Preprod reclaim deployment manifest. |
+
+## Browser Distribution Through Cloudflare R2
+
+The GitHub release above remains the desktop archive distribution route. The
+browser prover obtains the same release's bulk, hash-pinned assets from the
+Cloudflare R2 bucket `proof-assets` through the custom domain
+`proof-assets.reclaim-proof.com`.
+
+- Object-key prefix: `proof-assets/preprod-d2c944d-r3/`
+- Chunk-manifest base URL:
+  `https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/`
+- Bulk objects: 124 16 MiB `ownership.pk.part####` chunks,
+  `ownership-destination.ccs` (`187120157` bytes), and the CPU-fallback
+  `ownership.pk` (`2079485517` bytes).
+- The reclaim descriptor's `pk_url` and `ccs_url`, and the signed chunk
+  manifest's `transport.base_url`, use this custom domain.
+- R2 is not a new trust root. The browser verifies chunk and CCS hashes against
+  signed, same-origin manifests before those bytes affect proving.
+
+The hostname has cache eligibility, immutable response headers, disabled
+compression, wildcard read-only CORS, and Smart Tiered Cache. The chunks and CCS
+are edge-cacheable; the monolithic fallback exceeds the normal 512 MB
+cacheable-object limit and is served directly from R2. See
+[`browser-proving-asset-hosting.md`](browser-proving-asset-hosting.md) for the
+exact Ruleset Engine configuration, CORS policy, live verification results, and
+maintenance checks.
 
 ## Archive Digests
 

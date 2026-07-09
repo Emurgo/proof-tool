@@ -5,9 +5,13 @@ from its **current working-tree state** to a public Vercel deployment on Cardano
 **preprod**, with the browser WASM prover (`Prove in this browser`) enabled and
 proving end-to-end.
 
-This document is grounded in the actual repo state (verified 2026-07-08), not an
+This document is grounded in the actual repo state (verified 2026-07-09), not an
 aspirational one. It first inventories exactly **what is already implemented** and
 **what is not**, then gives the ordered, detailed steps to close the gap.
+
+Status: open. The Cloudflare R2 ranged host is live. The Vercel environment,
+deployed Lace/COEP check, and hosted end-to-end browser proof remain go/no-go
+gates.
 
 ---
 
@@ -54,6 +58,11 @@ The browser-proving feature is **code-complete and locally verified**. Concretel
   worker stack produced a `streampk-sharded-groth16` proof in **122 s / 2.31 GiB,
   verified locally**; the artifact passed `verify-destination` and the five-class
   tamper gate.
+- **Cloudflare R2 ranged host.** Bucket `proof-assets` is live at
+  `proof-assets.reclaim-proof.com`; the release prefix, CORS, immutable headers,
+  compression disable rule, cache eligibility, and Smart Tiered Cache were
+  verified against real PK chunks and the CCS on 2026-07-09. The enabled public
+  descriptor and signed chunk manifest use the custom domain.
 
 ### 1.2 What is NOT done (the actual deployment gap)
 
@@ -67,19 +76,14 @@ The browser-proving feature is **code-complete and locally verified**. Concretel
    `next.config.mjs`, `lib/reclaim-server/manifest.ts` — and `ClaimFlow.tsx`
    imports the untracked `lib/proving/*`, so committing it without the rest breaks
    the build. **Vercel deploys only committed files, so this is the first blocker.**
-2. **No ranged asset host exists** for the ~2.08 GB proving key and ~187 MB CCS.
-   Vercel cannot host these; they need a separate range-capable object store.
-3. **The WASM binaries are not shippable yet.** They are gitignored build products,
+2. **The WASM binaries are not shippable yet.** They are gitignored build products,
    and Vercel's Next.js build image has no Go toolchain, so `next build` cannot
    produce them.
-4. **No enabled `browser_proving` descriptor is wired to production.** The local
-   staging used a placeholder host; `deployments/reclaim/preprod/disabled.sample.json`
-   carries a **disabled** example only.
-5. **No Vercel environment is configured** (deployment manifest, provider key,
+3. **No Vercel environment is configured** (deployment manifest, provider key,
    review-token secret).
-6. **No hosted/wallet validation** (COOP/COEP + Lace signing on a real domain; a
+4. **No hosted/wallet validation** (COOP/COEP + Lace signing on a real domain; a
    modest-hardware run).
-7. **gnark fork provenance** (Milestone 7) is deferred — interim drift-check CI is
+5. **gnark fork provenance** (Milestone 7) is deferred — interim drift-check CI is
    the current control.
 
 ### 1.3 Architecture once deployed — what serves what
@@ -87,8 +91,12 @@ The browser-proving feature is **code-complete and locally verified**. Concretel
 | Origin | Serves | Notes |
 |---|---|---|
 | **Vercel `web` service** (`apps/ownership-proof-web`, Next.js) | The app; `/claim-api/*` route handlers; same-origin `/proof-runtime/*` (WASM + workers) and `/proof-assets/*` (manifests, VK, PK index) | COOP/COEP already in `next.config.mjs`. `public/` served from Vercel's CDN. |
-| **Vercel `verifier` service** (Go, repo root) | `/api/*` → Groth16 verifier | Wired in `vercel.json`. **Only** the standalone `/credential-proof` demo (`ProofFlow.tsx`) calls `/api/verify`. The **claim funds page does not need it** — its artifacts are re-verified server-side by `assertProofArtifacts`. Optional for this launch. |
-| **Ranged asset host** (R2 / S3+CloudFront / B2 — *not* Vercel) | `ownership.pk` chunks (~2.08 GB) + `ownership-destination.ccs` (~187 MB) | Must support HTTP range, cross-origin under COEP, and `identity` encoding. The one genuinely new piece of infrastructure. |
+| **Cloudflare R2 custom domain** (`proof-assets.reclaim-proof.com`, not Vercel) | `ownership.pk` chunks (~2.08 GB), `ownership-destination.ccs` (~187 MB), and the monolithic CPU fallback | Live with CORS, identity encoding, immutable headers, edge caching for chunks/CCS, and Smart Tiered Cache. Exact configuration: `docs/browser-proving-asset-hosting.md`. |
+
+The legacy `/dev/credential-proof` page and its Go `/api/verify` service are
+local-only. Production `vercel.json` routes only to the Next.js web service;
+`scripts/dev-credential-proof.sh` starts the verifier plus the developer-only
+Next.js proxy locally.
 
 **Trust model:** everything the browser executes or trusts as an integrity root
 (WASM, workers, signed manifests, VK, PK index) is same-origin on Vercel and
@@ -102,13 +110,14 @@ the claim page is today's guarded shell, bit-for-bit.
 
 Accounts / access:
 
-- **Vercel** account + team connected to this repo, able to set env vars and (for
-  the multi-service `vercel.json`) with the multi-service feature available.
+- **Vercel** account + team connected to this repo and able to set environment
+  variables for Preview and Production deployments.
 - **Blockfrost** preprod project id (`preprod…`) — the preprod build/submit
   provider. (Koios works keyless as fallback but Blockfrost is better for submit.)
-- A **range-capable object store** for the bulk assets: Cloudflare R2 (recommended
-  — zero egress), AWS S3 + CloudFront, or Backblaze B2 + CDN. You must be able to
-  set CORS/CORP + cache headers and disable body compression.
+- The live **Cloudflare R2** bucket `proof-assets`, exposed through
+  `proof-assets.reclaim-proof.com`. Its CORS, cache, response-header,
+  no-compression, and Smart Tiered Cache configuration is recorded in
+  `docs/browser-proving-asset-hosting.md`.
 - The **preprod key bundle** already staged locally at
   `output/release/proof-assets-ownership-destination-v1-preprod-d2c944d-r3/stage/key-bundle/…`
   (2 GB PK, VK, signed key manifest; `vk_hash` `blake2b256:6057da91…d430a`).
@@ -189,13 +198,34 @@ but the browser-proving surface that **must** be committed together is:
 The descriptor's browser-proving `vk_hash` chain must terminate at this
 `verifierVkHash` or the client refuses to prove.
 
-### Step 2 — Stand up the ranged asset host (PK + CCS)
+### Step 2 — Verify and maintain the ranged asset host (PK + CCS) — complete
 
-This is the one new piece of infrastructure and it gates the feature.
+The ranged host was deployed and verified on 2026-07-09. Keep this step as the
+release/revalidation procedure; the detailed live configuration and operations
+record is `docs/browser-proving-asset-hosting.md`.
 
-**2.1 Choose host + stable base path.** Content is content-addressed and
-immutable; include the release id, e.g.
-`https://proof-assets.<your-domain>/preprod-d2c944d-r3/`. Treat as write-once.
+**2.1 Deployed host — Cloudflare R2.** The workload range-fetches ~2 GB of
+proving key **per proof** (up to ~10 GB per batch session), so **egress, not
+storage, is the entire cost story**. R2 was selected because it has **zero
+egress fees**, native HTTP range, one service, and Cloudflare-native header control;
+storage for the ~2.3 GB is ~$0.03/mo. Alternatives, for the record:
+
+| Host | Egress at 2 GB/proof | Verdict |
+|---|---|---|
+| **Cloudflare R2** (custom domain) | **$0** | **Recommended.** Edge-cached; repeat users barely touch R2. |
+| Backblaze B2 + Cloudflare (Bandwidth Alliance) | ~$0 | Fine if already on B2; two services instead of one. |
+| AWS S3 + CloudFront | ~$0.085/GB → **~$0.17/proof** | Works, but 10k proofs ≈ $1,700 egress. Avoid for this workload. |
+| Vercel Blob / Vercel itself | costly + weak range/header control | **Don't** — the point is to keep bulk off Vercel. |
+
+The live bucket is `proof-assets` in `WNAM`, attached to the custom domain
+`proof-assets.reclaim-proof.com`.
+
+**Stable base path.** Content is content-addressed and immutable; use a
+write-once, release-scoped path. The current release uses
+`https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/`.
+The repeated `proof-assets` is the bucket object's key prefix, not a typo.
+Serve it via a **custom domain**, not the `r2.dev` URL (rate-limited, not for
+production, limited header control). Never overwrite a release path.
 
 **2.2 Generate the chunk manifest + chunked PK against the production base URL.**
 Run **after** the WASM is built (Step 3) so the pins match, or run now and rebuild
@@ -211,7 +241,7 @@ if the WASM changes:
       --proof-wasm-path dist/proof-runtime/proof-destination.wasm \
       --worker-js-path apps/ownership-proof-web/public/proof-runtime/msm-worker.js \
       --msm-worker-wasm-path dist/proof-runtime/msmworker.wasm \
-      --base-url 'https://proof-assets.<your-domain>/preprod-d2c944d-r3/' \
+      --base-url 'https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/' \
       --release proof-assets-preprod-d2c944d-r3 --profile preprod-single-destination
 
 > **GOTCHA — trailing slash.** `--base-url` MUST end with `/`. The sharded engine
@@ -224,34 +254,111 @@ if the WASM changes:
 The out dir now has `ownership.pk.part0000…part0123` (124 × 16 MiB), the CCS, and
 the signed `chunk-manifest.json`.
 
-**2.3 Upload the bulk objects.** Upload **only** the 124 `ownership.pk.part####`
-chunks and `ownership-destination.ccs` under the base path. (The small
-integrity-root files go to Vercel in Step 4.) The worker enforces these response
-requirements and rejects otherwise:
+**2.3 Upload the bulk objects.** Upload under the release base path: the 124
+`ownership.pk.part####` chunks and `ownership-destination.ccs`. **Also upload the
+single `ownership.pk`** (the 2 GB file from the key bundle) if you want the
+CPU-fallback proving path to work — it is fetched via `pk_url` when the sharded
+engine can't run; storage is cheap (~$0.03/mo more) and it lets a proof still
+complete (slowly) instead of failing to desktop. If you'd rather fail fast to
+desktop-helper when sharding is unavailable, omit it. (The small integrity-root
+files — manifests, VK, PK index — go to Vercel same-origin in Step 4, not here.)
+
+The worker enforces these response requirements and rejects otherwise:
 
 - **`Accept-Ranges: bytes`** with 206/416 semantics on every chunk and the CCS.
+  The live monolithic PK returned `200` to a Range request on 2026-07-09; the
+  sharded path is unaffected, but do not rely on a ranged CPU fallback until this
+  is corrected and re-verified.
 - **`Content-Encoding: identity`** — no gzip/brotli/transfer transforms on the
-  body. Disable auto-compress/Polish/minify for this path.
-- **Cross-origin under COEP:** the app page is `require-corp`, so responses must
-  send **`Cross-Origin-Resource-Policy: cross-origin`** *or* CORS with
-  `Access-Control-Allow-Origin: https://<app-origin>` +
-  `Access-Control-Allow-Headers: range` +
-  `Access-Control-Expose-Headers: content-range, accept-ranges, content-length`.
-  CORP is simpler; prefer it.
+  body. Serve as `application/octet-stream` and disable Cloudflare
+  Polish/Brotli/auto-minify for the route.
+- **CORS is required (not just CORP).** The prover runs in a worker and reaches
+  these objects with a cross-origin `fetch()` whose *body it must read*. Under COEP
+  a body-reading cross-origin `fetch()` is a CORS request — so the response **must**
+  carry `Access-Control-Allow-Origin` for the app. The current public bucket uses
+  `Access-Control-Allow-Origin: *`, which is valid because the requests carry no
+  credentials. Range fetches also need `Access-Control-Allow-Headers:
+  range` and a handled `OPTIONS` preflight. `Cross-Origin-Resource-Policy:
+  cross-origin` alone is **not** sufficient here — CORP covers no-cors embeds
+  (`<img>`/`<script>`), not `fetch()` that reads bytes. (Add CORP too if you like;
+  it does no harm.)
+
+  > The live cross-origin CORS-under-COEP prerequisites were verified against a
+  > PK chunk and the CCS on 2026-07-09. Repeat the checks in 2.4 after changing
+  > the bucket CORS policy or the app origin.
+
 - **`Cache-Control: public, max-age=31536000, immutable`.**
 
-Host notes: **R2** — serve via a custom domain, disable Polish/Brotli, set
-CORP/Cache via Transform Rule or metadata, range is native. **S3+CloudFront** —
-leave `Content-Encoding` unset, attach a response-headers policy (CORP + cache),
-do not enable CloudFront compression for these objects. **B2** — front with a CDN
-(Bunny/Cloudflare) for range + headers.
+**Live R2 configuration:**
 
-**2.4 Verify from the app origin** before wiring it in:
+1. Set the bucket **CORS policy** (R2 dashboard → bucket → Settings → CORS, or via
+   `wrangler`/S3 API). This produces the `Access-Control-*` headers, including
+   preflight handling:
 
-    curl -sI -H 'Origin: https://<app-origin>' -r 0-63 \
-      'https://proof-assets.<your-domain>/preprod-d2c944d-r3/ownership.pk.part0000'
-    # expect 206, Accept-Ranges: bytes, no/identity Content-Encoding,
-    #        Cross-Origin-Resource-Policy: cross-origin (or ACAO: <app-origin>)
+       [
+         {
+           "AllowedOrigins": ["*"],
+           "AllowedMethods": ["GET", "HEAD"],
+           "AllowedHeaders": ["Range"],
+           "ExposeHeaders": [
+             "Accept-Ranges",
+             "Content-Length",
+             "Content-Range",
+             "Content-Encoding",
+             "ETag",
+             "Cache-Control"
+           ],
+           "MaxAgeSeconds": 86400
+         }
+       ]
+
+2. Cache Rule `proof_assets_cache_eligible_v1` matches
+   `(http.host eq "proof-assets.reclaim-proof.com")` and sets `cache: true`.
+3. Response Header Transform Rule `proof_assets_response_headers_v1` uses the
+   same hostname match and sets
+   `Cache-Control: public, max-age=31536000, immutable` plus
+   `Cross-Origin-Resource-Policy: cross-origin`.
+4. Compression Rule `proof_assets_disable_compression_v1` uses the same hostname
+   match and selects only the `none` algorithm. This is required even when a
+   client advertises gzip, Brotli, or Zstandard.
+5. Tiered Cache and Smart Tiered Cache are enabled for the zone. Unlike the three
+   hostname rules, these are zone-level settings.
+
+The 16 MiB chunks and 187 MB CCS are below Cloudflare's 512 MB cacheable-object
+limit on Free, Pro, and Business plans and returned `CF-Cache-Status: HIT` during
+live checks. The 2.08 GB monolithic fallback is accessible but returned `BYPASS`;
+it is too large for that cache limit. See the hosting guide for Cloudflare source
+links, safe token permissions, purge guidance, and exact verification commands.
+
+Other hosts, briefly: **S3 + CloudFront** — bucket CORS + a response-headers policy
+(cache; CORS is carried from the origin), `Content-Encoding` unset, CloudFront
+compression **off** for these objects. **B2** — front with Cloudflare/Bunny to get
+range + CORS + cache.
+
+**2.4 Verify from outside Vercel, simulating the app origin** before wiring it in.
+Check both the plain chunk GET and a CORS preflight for the ranged CCS:
+
+    # Chunk GET (no Range header) — must be CORS-readable:
+    curl -si -H 'Origin: https://<app-origin>' \
+      'https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/ownership.pk.part0000' | head
+    # expect: 200, Accept-Ranges: bytes, no/identity Content-Encoding,
+    #         Access-Control-Allow-Origin: *
+
+    # Range request byte-identity on the CCS:
+    curl -si -H 'Origin: https://<app-origin>' -r 1000000-1000063 \
+      'https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/ownership-destination.ccs' | head
+    # expect: 206, Content-Range present, ACAO present
+
+    # CORS preflight for a ranged fetch:
+    curl -si -X OPTIONS \
+      -H 'Origin: https://<app-origin>' \
+      -H 'Access-Control-Request-Method: GET' \
+      -H 'Access-Control-Request-Headers: range' \
+      'https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/ownership-destination.ccs' | head
+    # expect: 2xx, Access-Control-Allow-Origin + Access-Control-Allow-Headers: range
+
+If any of these lack `Access-Control-Allow-Origin`, the browser proof will fail the
+moment it tries to read a chunk — fix CORS before proceeding.
 
 ### Step 3 — Build and ship the WASM runtime (the Go-on-Vercel problem)
 
@@ -334,12 +441,13 @@ hex/hash formats, and the `vk_hash` chain):
 
 ### Step 5 — Vercel project + environment variables
 
-**5.1 Project.** Import the repo. `vercel.json` already declares `web` (Next.js) +
-`verifier` (Go) with `/api/*` → verifier and `/:path*` → web. If you are not
-shipping the credential-proof demo, drop the `verifier` service and its `/api`
-rewrite — the claim page does not need it. Framework Next.js; install
-`pnpm install --frozen-lockfile`; build `pnpm build`; Node 20+; ensure the monorepo
-root resolves the `packages/client-ts` `file:` workspace dep.
+**5.1 Project.** Import the repo. Production `vercel.json` declares only the
+Next.js `web` service and routes every request to it. The local-only credential
+proof demo is intentionally absent, so `/dev/credential-proof` and `/api/verify`
+must both return 404 on Preview and Production. For local development with the
+Go verifier, run `scripts/dev-credential-proof.sh`. Use
+`pnpm install --frozen-lockfile`; build `pnpm build`; Node 20+; ensure the
+monorepo root resolves the `packages/client-ts` `file:` workspace dependency.
 
 **5.2 Environment variables (Production).** Inject the whole manifest as one JSON
 var — cleanest, and avoids the 40+ flat `RECLAIM_*` fields:
@@ -357,8 +465,10 @@ exactly — the loader runs an env/manifest coherence check and disables the
 deployment on any mismatch. Browser-proving enablement is entirely
 `browser_proving.enabled` in the JSON — there is no client env flag.
 
-**5.3 Custom domain.** Assign it. The resulting `https://<app-origin>` must match
-the ranged host's CORS allow-list if you used CORS instead of CORP (Step 2.3).
+**5.3 Custom domain.** Assign it. The resulting `https://<app-origin>` must be in
+the ranged host's CORS `AllowedOrigins` (Step 2.3) — the app origin is the value
+the R2 CORS policy allows, so set the domain before finalizing that policy (or
+update the policy after).
 
 ### Step 6 — Cross-origin isolation & wallet (Lace) validation on the deployed site
 
@@ -388,7 +498,7 @@ COOP/COEP ship automatically from `next.config.mjs`. Verify on the live site:
    matching reclaim UTxOs and a distinct safe wallet (Lace), run browser method →
    phrase → generate. Expect visible N-of-M + stage/percent progress, engine
    `streampk-sharded-groth16` at ~2 min/proof (a `streampk-cpu-groth16` ~8 min run
-   means the chunk base_url trailing slash or a ranged-host 404/CORP issue demoted
+   means the chunk base_url trailing slash or a ranged-host 404/CORS issue demoted
    it — fix Step 2), then `create-proofs-complete` → build → sign (Lace) → submit
    on preprod.
 5. **Desktop path regression check:** flip `browser_proving.enabled: false` in the
@@ -400,11 +510,12 @@ COOP/COEP ship automatically from `next.config.mjs`. Verify on the live site:
 ## Part 4 — Go / no-go checklist
 
 - [ ] Browser-proving code + workers + Go packages + scripts **committed**; WASM and `ownership.vk` force-added past `.gitignore`; `next build` green off the commit; `source_commit` clean and pushed.
-- [ ] Ranged host serves PK chunks + CCS with range, `identity` encoding, CORP `cross-origin` (or CORS for the app origin); a range fetch is byte-identical to the bundle.
+- [ ] Ranged host (R2) serves PK chunks + CCS with range, `identity` encoding, and **CORS** (`Access-Control-Allow-Origin: <app-origin>`, `Allow-Headers: range`, preflight handled); a cross-origin range fetch from the app origin is byte-identical to the bundle.
 - [ ] Chunk manifest generated with a **trailing-slash** base URL; `worker.js` pin == served `msm-worker.js` bytes.
 - [ ] `public/proof-runtime/*` (5 files) + `public/proof-assets/*` present in the deploy and byte-match the pins.
 - [ ] Manifest `browser_proving.enabled: true`; `vk_hash` chain terminates at `verifierVkHash`; manifest passes `verify-reclaim-manifest.mjs`.
 - [ ] Vercel env: `RECLAIM_DEPLOYMENT_MANIFEST_JSON`, `RECLAIM_PROVIDER=blockfrost`, `RECLAIM_BLOCKFROST_PROJECT_ID`, `RECLAIM_REVIEW_TOKEN_SECRET`.
+- [ ] Preview and Production return 404 for both `/dev/credential-proof` and `/api/verify`; `scripts/dev-credential-proof.sh` still serves the local credential-proof demo.
 - [ ] `crossOriginIsolated === true` on `/claim`; Lace connect + signTx works under COEP.
 - [ ] End-to-end preprod browser proof: sharded engine, ~2 min/proof, verified, build+sign+submit succeeds.
 - [ ] Secrets spot-check: no seed phrase / master XPrv / derivation path / request JSON in any network request (beyond descriptor asset fetches), console log, `localStorage` resume snapshot, or error surface.
@@ -433,4 +544,4 @@ COOP/COEP ship automatically from `next.config.mjs`. Verify on the live site:
 - **Experimental posture:** keep the `Experimental` pill and desktop as
   "Recommended for speed" until hosted evidence on a modest (≤8 GB / 4-core) and a
   fast profile is recorded and the gnark fork provenance review lands
-  (`docs/browser-wasm-prover-webapp-integration-plan.md` Milestone 7).
+  (see `docs/browser-proving.md` and `docs/browser-proving-asset-hosting.md`).

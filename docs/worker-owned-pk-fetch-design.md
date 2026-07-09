@@ -147,13 +147,15 @@ Follow-up details:
   gap alone. Caching remains useful for hosted latency, retries, and UX, not as
   sufficient evidence for promotion.
 
-Conclusion: keep the signed chunk manifest, preflight, and worker-owned
-section-fetch path as the accepted browser-experiment optimization at
-`w=16, shards=64` with the current 4 MiB signed bundle. Production webapp
-promotion remains a separate integration decision because it changes the
-user-facing secret-entry surface.
+Conclusion at that milestone: the signed chunk manifest, preflight, and
+worker-owned section-fetch path were accepted at `w=16, shards=64` with a 4 MiB
+signed bundle. They were subsequently promoted into the production browser
+provider after the separate capability, secret-boundary, claim-flow, tamper,
+and local acceptance gates passed. Later pinned-decode and commitment/overlap
+work superseded the w16/s64 tuning; current defaults and evidence are in
+`browser-proving.md`.
 
-## Current Evidence
+## Original Baseline Evidence
 
 The isolated browser WASM experiment already generated and locally verified a
 real destination-bound proof with current preprod proof assets. The recorded
@@ -190,7 +192,7 @@ verify: 0.015s
 serialize artifact: 0.001s
 ```
 
-The current ranged MSM path still does this:
+The pre-worker-owned ranged MSM path did this:
 
 ```text
 HTTP PK range bytes
@@ -201,11 +203,10 @@ HTTP PK range bytes
   -> MSM worker computes partial MultiExp
 ```
 
-Worker-owned PK fetch removes the first three point-data steps from the main
-prover worker. That is a real target, but it is not automatically a large
-wall-clock win because worker compute remains the largest bucket. Therefore the
-implementation must measure per-shard fetch, hash, decode, scalar copy, queue,
-compute, and combine time before and after the change.
+Worker-owned PK fetch removed the first three point-data steps from the main
+prover worker. Worker compute remained the largest bucket, which is why the
+implementation records per-shard fetch, hash, decode, scalar copy, queue,
+compute, and combine time.
 
 ## Non-Goals
 
@@ -757,9 +758,9 @@ Never cache:
 
 Cache eviction must be harmless. If a chunk is absent, fetch and verify it again.
 
-## Implementation Plan
+## Implemented Design Map
 
-### Phase 0: Evidence And Instrumentation
+### Phase 0: Evidence And Instrumentation (implemented)
 
 Add or verify per-shard trace fields before changing transport:
 
@@ -799,7 +800,7 @@ GOROOT="$(go env GOROOT)" N=2000 WORKERS=4 node experiments/wasm-prover/web/node
 one browser proof verifies with per-shard timing in trace
 ```
 
-### Phase 1: Signed Chunk Manifest Generator
+### Phase 1: Signed Chunk Manifest Generator (implemented)
 
 Add a command, likely under `cmd/proof-tool`, that:
 
@@ -823,7 +824,7 @@ go test ./cmd/proof-tool ./internal/artifact ./experiments/wasm-prover/...
 chunk-manifest tamper tests fail for signature, chunk digest, section offset, vk_hash, deployment id
 ```
 
-### Phase 2: Main-Owned Raw Transport Spike
+### Phase 2: Main-Owned Raw Transport Spike (tested, rejected for performance)
 
 Before full worker-owned fetch, optionally add a raw point transport mode where
 the proof worker fetches raw range bytes and sends them to MSM workers without
@@ -844,7 +845,7 @@ tamper checks fail
 If this spike is slower, keep the raw-byte equality tests and move on. Do not
 promote it as the final optimization.
 
-### Phase 3: Worker-Owned Authenticated Fetch
+### Phase 3: Worker-Owned Authenticated Fetch (implemented)
 
 Add the section-aware MSM engine path and worker message contract. Workers fetch
 and verify chunks themselves.
@@ -859,7 +860,7 @@ production path rejects 200 OK for range fetches
 tamper checks fail
 ```
 
-### Phase 4: Dynamic Scheduling And Scalar Reuse
+### Phase 4: Scheduling And Scalar Reuse (evaluated)
 
 Add:
 
@@ -881,17 +882,16 @@ Use 8 percent as the first go/no-go threshold because proof-time runs are long
 and noisy. A smaller win may still be useful for memory, but it is not enough to
 claim this optimization substantially improves proof construction time.
 
-### Phase 5: Production-Shaped Webapp Integration
+### Phase 5: Production Webapp Integration (implemented locally)
 
-Only after the experiment passes the benchmark gate:
+After the experiment passed its benchmark and correctness gates, integration:
 
-- Move the provider into `apps/ownership-proof-web/lib/proving/browser-wasm`.
-- Keep Proof Helper Desktop as the default stable fallback.
-- Gate browser proving on capability and signed asset preflight before phrase
-  entry.
-- Keep the existing `validateDestinationProofResponse` gate.
-- Add e2e evidence that browser-WASM artifacts can build claim transactions
-  through the same backend path as desktop-helper artifacts.
+- moved the provider into `apps/ownership-proof-web/lib/proving/browser-wasm`;
+- retained Proof Helper Desktop as the fallback;
+- gated browser proving on capability and signed asset preflight before phrase
+  entry;
+- kept the destination proof response and backend recomputation gates; and
+- added claim-flow/e2e coverage for browser-WASM provider selection.
 
 ## Benchmark Matrix
 
@@ -1008,7 +1008,7 @@ apps/proof-helper-desktop/src-tauri/key-bundle-core/src/lib.rs
 apps/proof-helper-desktop/src-tauri/src/proof_assets_release.rs
 ```
 
-Production webapp integration, only after experiment gates pass:
+Production webapp integration:
 
 ```text
 apps/ownership-proof-web/lib/proving/
@@ -1016,38 +1016,24 @@ apps/ownership-proof-web/components/ClaimFlow.tsx
 apps/ownership-proof-web/e2e/preprod/
 ```
 
-## Open Questions
+## Resolved Decisions And Open Questions
 
-1. Should production chunk assets be served as separate `ownership.pk.partNNNN`
-   files, or as range requests against a monolithic `ownership.pk` with per-chunk
-   hash verification? Separate files simplify CDN behavior and digest checking;
-   monolithic range requests keep release artifacts closer to the current key
-   bundle. Benchmark both only if hosting constraints make the choice unclear.
-2. Should chunk signature be detached like `manifest.sig`, or embedded in the
-   chunk manifest? Detached matches existing repo practice.
-3. Should browser signature verification use Go WASM only, or should the webapp
-   add a TypeScript Ed25519 verifier for preflight before loading Go WASM? Go
-   WASM reduces dependency drift. TypeScript preflight can improve UX but must
-   not become the only verifier.
-4. Can the current gnark fork expose a cleaner upstreamable `VectorSource` and
-   section-aware MSM hook, or does production need to carry a maintained fork?
-5. What is the hosted range latency and cache behavior under the real asset host?
-   Localhost proof timings are not enough for the final release decision.
+1. Production uses separately hashed `ownership.pk.partNNNN` objects. The
+   single PK may also be hosted for the CPU fallback.
+2. The chunk-manifest signature is detached, matching the key manifest.
+3. Go WASM performs the authoritative signature/coherence preflight; the webapp
+   capability layer does not replace it with a separate trust root.
+4. Open: replace the vendored gnark streaming patch with a reviewed fork or
+   upstreamable `VectorSource`/section-aware MSM API.
+5. Open deployment gate: measure CORS/range/cache behavior and proof timing on
+   the real ranged host. Local acceptance does not prove hosted behavior.
 
-## Final Recommendation
+## Current Disposition
 
-Proceed with worker-owned PK fetch only as part of the combined
-`authenticated chunks + section-aware MSM + dynamic scheduling + scalar SAB reuse`
-track.
-
-Do not spend the implementation budget on worker-owned fetch as a standalone
-asset-loading cleanup. The measured proof is compute/MSM dominated; a standalone
-fetch refactor may make the architecture cleaner without materially reducing
-proof time. The design has the best chance of improving proof construction time
-when it also improves worker utilization and removes repeated point/scalar
-marshalling on the critical MSM path.
-
-Promotion criteria:
+The authenticated chunks and section-aware worker-owned MSM path are
+implemented in the production browser provider. The desktop helper remains an
+available fallback, and hosted enablement remains descriptor-gated. Any future
+transport or tuning change must continue to satisfy:
 
 ```text
 browser proof verifies locally

@@ -1,8 +1,8 @@
 {
   "schema": "proof-tool-proof-assets-chunk-manifest-v1",
-  "release": "proof-assets-ownership-destination-v1-preprod-d2c944d-r3-local",
+  "release": "proof-assets-ownership-destination-v1-preprod-d2c944d-r3",
   "profile": "preprod-single-destination",
-  "generated_at": "2026-07-09T04:49:36Z",
+  "generated_at": "2026-07-09T17:10:42Z",
   "signature_key_id": "preprod-local-destination-d2c944dd753c-r3",
   "coherence": {
     "key_manifest_sha256": "sha256:d7141830b1dbf94b1a50a8a400b904c88188c6f7aec17aee6773324d0d79eee6",
@@ -22,11 +22,11 @@
     "proof_tool_version": "0.1.0",
     "cardano_vk_format": "groth16-bls12-381-bsb22",
     "cardano_vk_blake2b256": "blake2b256:d35ce80449fddb17cacbf922dfe27e57c28afcd59bee44bcef8eecbd7b317acf",
-    "deployment_id": "preprod:2fa284c094db10d9bf916a6f42199c883cc55a199ebe23b6b9070c54:71c224623824d44a648e42d1a7653535a78879bc",
-    "deployment_source_commit": "71c224623824d44a648e42d1a7653535a78879bc"
+    "deployment_id": "preprod:2fa284c094db10d9bf916a6f42199c883cc55a199ebe23b6b9070c54:fe0175fddf8e09b2ecb13d138a604d10355d76c1",
+    "deployment_source_commit": "fe0175fddf8e09b2ecb13d138a604d10355d76c1"
   },
   "transport": {
-    "base_url": "http://127.0.0.1:8788/proof-assets/",
+    "base_url": "https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/",
     "content_encoding": "identity",
     "requires_https": true,
     "supports_range": true

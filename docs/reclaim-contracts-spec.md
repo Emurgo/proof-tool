@@ -14,6 +14,25 @@ The repository contains `Ownership.Verify`, a reusable Plutus V3 ownership-proof
 verifier, plus the reclaim-base spending validator and reclaim-global rewarding
 validator described below.
 
+Developer entrypoints:
+
+- `src/Ownership/Verify.hs`: committed Groth16/BSB22 parsing and ownership,
+  destination, and multi public-input checks.
+- `src/Ownership/ReclaimBase.hs`: spending validator that requires the global
+  rewarding credential.
+- `src/Ownership/ReclaimGlobal.hs`: one destination-bound proof per matching
+  input, with its batch-verification optimization kept semantically equivalent
+  to individual verification.
+- `src/Ownership/ReclaimGlobalMulti.hs`: one count-specific proof for an
+  ordered set of matching inputs.
+- `test/VerifySpec.hs`: real-proof positives plus proof/order/destination/value
+  negative cases.
+- `test-support/ScriptContextBuilder.hs`: transaction-context fixtures shared
+  by tests and benchmarks.
+- `bench/Bench.hs`: full validator-context execution budgets.
+- `export/ReclaimDeploymentScripts.hs`: parameterized Plutus V3 deployment
+  script export used by the Preprod deployer.
+
 ## Contract 1: Reclaim Base Spending Validator
 
 ### Purpose
@@ -151,6 +170,22 @@ chain. The destination is not trusted when supplied by the redeemer or off-chain
 builder. A valid proof authorizes the spend only to the proof-bound destination
 address, and the protected input value must be covered by that output.
 
+`destinationAddressV1` is a network-independent, fixed 58-byte encoding:
+
+```text
+payment_credential_tag || payment_credential_hash
+|| stake_credential_tag || stake_credential_hash
+```
+
+Each tag is one byte (`0x01` for a key credential, `0x02` for a script
+credential) and each hash is 28 bytes. Enterprise addresses use 29 zero bytes
+for the absent stake part. Base addresses encode the actual stake credential.
+Pointer stake credentials are intentionally unsupported. The browser encoder
+is `apps/ownership-proof-web/lib/claim/addresses.ts`; both global validators
+derive the same bytes from ledger `Address` data on chain. Network ID is not
+part of the Plutus `Address` value, so the off-chain network check happens
+before this encoding.
+
 Transactions with no reclaim-base inputs should fail by default. The rewarding
 script exists only to authorize reclaim spends; allowing no-op withdrawals makes
 off-chain mistakes harder to detect.
@@ -256,3 +291,44 @@ when:
 
 The policy does not constrain token name; the deployment transaction chooses the
 NFT token name when minting the immutable parameter token.
+
+## Proof Fixtures And Benchmarks
+
+Checked fixtures under `testdata/` are generated from real Go proving and
+Cardano export paths, not invented bytes:
+
+- `ownership-destination-{proof,vk,pub}.hex`: active single-destination proof;
+- `multi-count2-{proof,vk,pub}.hex`: count-2 multi proof;
+- `multi-benchmark-fixtures.json`: count-1 and count-5 multi proofs plus
+  credentials, destination, circuit/key identities, and Cardano bytes;
+- `ownership-destination-distinct-proofs.txt`: distinct single proofs used by
+  batch benchmarks.
+
+The count is part of the multi circuit ID and key version; never reuse a VK or
+proof across counts. Regenerate multi benchmark fixtures deliberately with a
+local 96-byte golden-vector master XPrv (do not put a real secret in a command):
+
+```bash
+go run ./cmd/proof-tool generate-multi-benchmark-fixtures \
+  --counts 1,5 \
+  --master-xprv <repo-backed-test-master-xprv-hex> \
+  --destination-address-bytes <58-byte-test-destination-hex>
+```
+
+Generation verifies each proof before updating JSON. Counts 10, 15, and 20
+were intentionally deferred after the count-5 budget gate. The recorded full
+context count-5 result used 2,418,229 memory and 3,790,755,057 CPU, about
+17.273% memory and 37.908% CPU of the configured maximum transaction budget.
+Treat those numbers as regression context, not a substitute for benchmarking
+the current compiler/dependency set.
+
+```bash
+cd contracts/ownership-verifier
+cabal v2-test all
+cabal v2-bench ownership-verifier-bench
+cabal v2-build exe:reclaim-scripts-export
+```
+
+Any verifier, redeemer, address-encoding, fixture, or compiler change requires
+real positive and negative contract-path evidence. Compile-only evidence is not
+sufficient for a mainnet-facing reclaim rule.

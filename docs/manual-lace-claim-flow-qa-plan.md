@@ -5,6 +5,10 @@
 Turn the manual Edge + Lace claim-flow test ritual into a repeatable,
 evidence-producing Preprod smoke lane.
 
+Status: open. The checked-in driver still requires an unpacked extension and
+does not yet automate the installed Edge profile plus desktop install/cleanup
+journey required by the done criteria.
+
 Reported bug and UX findings live separately in
 `docs/manual-lace-claim-flow-findings.md`. This document is the automation plan
 for reproducing the full end-user flow and producing bug-report-ready evidence
@@ -42,8 +46,9 @@ The repo already has a useful starting point:
   validates a persistent Lace profile.
 - `apps/ownership-proof-web/e2e/preprod/claim-ui-stage.mjs`
   drives the browser claim UI path.
-- `docs/real-lace-wallet-smoke-plan.md`
-  describes the existing harness-vs-Lace smoke lane.
+- `docs/preprod-e2e.md` describes the implemented deterministic harness and
+  the current separation between injected-wallet and operator-driven Lace
+  lanes.
 
 The key gap is not whether Playwright can run a browser. It is making the real
 desktop-helper, real Lace profile, and real claim UX reliable enough to produce
