@@ -48,6 +48,7 @@ import type {
   IndexedReclaimUtxo,
   ReclaimUtxosResponse,
 } from "../lib/claim/types";
+import { CLAIM_HARD_BATCH_CAP, CLAIM_OPTIMIZATION_BATCH_CAP } from "../lib/claim/types";
 import type { AssetMap, BrowserProvingDescriptor, DeploymentResponse, ReclaimApiError, ReclaimNetwork } from "../lib/reclaim/types";
 import { LOVELACE_UNIT } from "../lib/reclaim/types";
 import { ProvingCancelledError, checkBrowserProving, proveDestinationInBrowser } from "../lib/proving/browser-wasm";
@@ -1354,6 +1355,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
           networkId: deployment.deployment.networkId,
           draftId: draft.draftId,
           selectedOutrefs: draft.orderedInputs.map((input) => input.outRefId),
+          maxUtxos: draft.batchCap.requested,
           safeWalletChangeAddress: safeWallet.changeAddress,
           safeWalletAddresses: safeWallet.addresses,
           proofArtifacts,
@@ -4245,11 +4247,14 @@ function selectClaimBatchRows(rows: ClaimRow[], pendingOutrefs: string[], deploy
   }
   const pending = new Set(pendingOutrefs);
   const defaultCap = deployment.deployment.batching?.default_utxo_count ?? 4;
-  const hardCap = deployment.deployment.batching?.hard_max_utxo_count ?? 5;
+  const hardCap = Math.min(
+    deployment.deployment.batching?.hard_max_utxo_count ?? CLAIM_OPTIMIZATION_BATCH_CAP,
+    CLAIM_HARD_BATCH_CAP,
+  );
   return rows
     .filter((row) => row.outRefId && !pending.has(row.outRefId))
     .sort(compareClaimRows)
-    .slice(0, Math.min(defaultCap, hardCap));
+    .slice(0, Math.min(defaultCap, hardCap, CLAIM_HARD_BATCH_CAP));
 }
 
 function compareClaimRows(left: ClaimRow, right: ClaimRow): number {

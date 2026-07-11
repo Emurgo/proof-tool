@@ -174,6 +174,10 @@ main = do
         [ statementV2BenchmarkCase "ZK-02 statement-bound distinct" baseScript statementV2GlobalScript (take inputCount distinctFixtures)
         | inputCount <- [1 .. 9]
         ]
+      statementV2RepeatedCases =
+        [ statementV2BenchmarkCase "ZK-02 statement-bound repeated full proof" baseScript statementV2GlobalScript (replicate inputCount repeatedFixture)
+        | inputCount <- [1, 2, 5, 35]
+        ]
 
   assertPerRunBaseFlat repeatedCases
   assertV8DistinctCapacity distinctCases
@@ -224,7 +228,7 @@ main = do
       (headerLabels !! 12)
       (headerLabels !! 13)
   putStrLn (replicate 177 '-')
-  mapM_ printCase (repeatedCases <> distinctCases <> multiCases <> v2RepeatedCases <> v2DistinctCases <> v2MixedCases <> v2MultiCases <> statementV2DistinctCases)
+  mapM_ printCase (repeatedCases <> distinctCases <> multiCases <> v2RepeatedCases <> v2DistinctCases <> v2MixedCases <> v2MultiCases <> statementV2DistinctCases <> statementV2RepeatedCases)
   putStrLn ""
   putStrLn "V5 repeated encoding sizes (exact Plutus Data CBOR; context size is not full transaction CBOR)"
   forM_ [35, 100] $ \inputCount ->

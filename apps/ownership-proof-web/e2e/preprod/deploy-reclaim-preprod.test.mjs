@@ -88,6 +88,12 @@ describe("reclaim script exporter invocation", () => {
     expect(manifest.reclaim_global.batch_transcript_vk_hash).toBe(
       `blake2b256:${"22".repeat(32)}`,
     );
-    expect(manifest.batching.hard_max_utxo_count).toBe(5);
+    expect(manifest.batching).toEqual({
+      default_utxo_count: 4,
+      optimization_utxo_count: 5,
+      hard_max_utxo_count: 5,
+      max_tx_cpu_percent: 80,
+      max_tx_mem_percent: 80,
+    });
   });
 });

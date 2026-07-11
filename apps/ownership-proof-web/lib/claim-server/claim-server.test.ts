@@ -12,7 +12,12 @@ import {
   type UTxO,
 } from "@lucid-evolution/lucid";
 import type { ReclaimDeployment } from "../reclaim/types";
-import { CLAIM_DEFAULT_BATCH_CAP, CLAIM_HARD_BATCH_CAP, type ClaimDraftResponse } from "../claim/types";
+import {
+  CLAIM_DEFAULT_BATCH_CAP,
+  CLAIM_HARD_BATCH_CAP,
+  CLAIM_OPTIMIZATION_BATCH_CAP,
+  type ClaimDraftResponse,
+} from "../claim/types";
 import { ClaimValidationError, outRefToString } from "../claim/validation";
 import { destinationAddressV1 } from "../claim/addresses";
 import { createClaimDraft } from "./draft";
@@ -65,6 +70,13 @@ const DEPLOYMENT: ReclaimDeployment = {
     token_name: PARAMS_TOKEN_NAME,
     holder_address: PARAMS_HOLDER_ADDRESS,
     datum_reclaim_base_script_hash: RECLAIM_SCRIPT,
+  },
+  batching: {
+    default_utxo_count: CLAIM_DEFAULT_BATCH_CAP,
+    optimization_utxo_count: CLAIM_OPTIMIZATION_BATCH_CAP,
+    hard_max_utxo_count: CLAIM_OPTIMIZATION_BATCH_CAP,
+    max_tx_cpu_percent: 80,
+    max_tx_mem_percent: 80,
   },
 };
 
@@ -193,7 +205,7 @@ describe("claim draft server helpers", () => {
     ).rejects.toMatchObject({ code: "selected_outref_pending" });
   });
 
-  it("applies default cap 4 and hard cap 5", async () => {
+  it("applies default cap 4 and the V2 manifest cap 5", async () => {
     const reclaimUtxos = [
       reclaimUtxo("01", 0, CREDENTIAL_1, 1),
       reclaimUtxo("02", 0, CREDENTIAL_2, 2),
@@ -219,7 +231,7 @@ describe("claim draft server helpers", () => {
     expect(draft.batchCap).toEqual({
       requested: CLAIM_DEFAULT_BATCH_CAP,
       default: CLAIM_DEFAULT_BATCH_CAP,
-      hardMax: CLAIM_HARD_BATCH_CAP,
+      hardMax: CLAIM_OPTIMIZATION_BATCH_CAP,
     });
     expect(draft.orderedInputs).toHaveLength(4);
     expect(draft.reductions).toContain("reduced_to_batch_cap_4");
@@ -232,6 +244,57 @@ describe("claim draft server helpers", () => {
         safeWalletAddresses: [SAFE_ADDRESS],
         nextBatch: true,
         maxUtxos: 6,
+      }),
+    ).rejects.toMatchObject({ code: "batch_cap_exceeded" });
+  });
+
+  it("permits a future manifest-approved capacity only through the absolute client ceiling", async () => {
+    const reclaimUtxos = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
+      reclaimUtxo(
+        (index + 1).toString(16).padStart(2, "0"),
+        0,
+        (index + 1).toString(16).padStart(56, "0"),
+        index + 1,
+      ),
+    );
+    const provider = providerWith({
+      reclaimUtxos,
+      selectedUtxos: reclaimUtxos,
+      safeUtxos: [safeUtxo()],
+    });
+    const futureDeployment: ReclaimDeployment = {
+      ...DEPLOYMENT,
+      contractVersion: "future-profile",
+      batching: {
+        ...DEPLOYMENT.batching!,
+        hard_max_utxo_count: CLAIM_HARD_BATCH_CAP + 1,
+      },
+    };
+
+    const draft = await createClaimDraft(provider, futureDeployment, {
+      deploymentId: futureDeployment.id,
+      networkId: 0,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      nextBatch: true,
+      maxUtxos: CLAIM_HARD_BATCH_CAP,
+    });
+
+    expect(draft.batchCap).toEqual({
+      requested: CLAIM_HARD_BATCH_CAP,
+      default: CLAIM_DEFAULT_BATCH_CAP,
+      hardMax: CLAIM_HARD_BATCH_CAP,
+    });
+    expect(draft.orderedInputs).toHaveLength(CLAIM_HARD_BATCH_CAP);
+
+    await expect(
+      createClaimDraft(provider, futureDeployment, {
+        deploymentId: futureDeployment.id,
+        networkId: 0,
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        nextBatch: true,
+        maxUtxos: CLAIM_HARD_BATCH_CAP + 1,
       }),
     ).rejects.toMatchObject({ code: "batch_cap_exceeded" });
   });

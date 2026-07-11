@@ -573,6 +573,7 @@ describe("ClaimFlow", () => {
           networkId: 0,
           draftId: draft.draftId,
           selectedOutrefs,
+          maxUtxos: draft.batchCap.requested,
           safeWalletChangeAddress: safeWalletAddressBech32,
           safeWalletAddresses: [safeWalletAddressBech32],
         });

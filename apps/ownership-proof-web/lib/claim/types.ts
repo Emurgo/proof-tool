@@ -1,7 +1,8 @@
 import type { AssetMap, ReclaimDeployment, ReclaimNetwork } from "../reclaim/types";
 
 export const CLAIM_DEFAULT_BATCH_CAP = 4;
-export const CLAIM_HARD_BATCH_CAP = 5;
+export const CLAIM_OPTIMIZATION_BATCH_CAP = 5;
+export const CLAIM_HARD_BATCH_CAP = 35;
 export const DESTINATION_ADDRESS_V1_ENCODING = "destination-address-v1";
 export const DESTINATION_ADDRESS_V1_BYTES = 58;
 
@@ -127,7 +128,7 @@ export type ClaimDraftResponse = {
   batchCap: {
     requested: number;
     default: typeof CLAIM_DEFAULT_BATCH_CAP;
-    hardMax: typeof CLAIM_HARD_BATCH_CAP;
+    hardMax: number;
   };
   orderedInputs: ClaimDraftInput[];
   orderedPaymentCredentials: string[];

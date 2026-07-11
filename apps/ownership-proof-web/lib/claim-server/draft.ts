@@ -11,6 +11,7 @@ import {
 import {
   CLAIM_DEFAULT_BATCH_CAP,
   CLAIM_HARD_BATCH_CAP,
+  CLAIM_OPTIMIZATION_BATCH_CAP,
   DESTINATION_ADDRESS_V1_ENCODING,
   type ClaimDraftDestinationOutput,
   type ClaimDraftInput,
@@ -43,7 +44,8 @@ export async function createClaimDraft(
   assertWalletNetwork(raw.networkId, deployment.networkId);
 
   const safeWallet = await loadSafeWallet(provider, deployment, raw);
-  const requestedCap = assertBatchCap(raw.maxUtxos);
+  const requestedCap = assertBatchCap(raw.maxUtxos, deployment);
+  const hardCap = deploymentBatchCap(deployment);
   const pendingOutrefs = new Set(assertOutRefList(raw.pendingOutrefs, "pendingOutrefs").map(outRefToString));
   const selectedOutrefs = assertOutRefList(raw.selectedOutrefs, "selectedOutrefs");
 
@@ -77,7 +79,7 @@ export async function createClaimDraft(
   if (reclaimUtxos.length === 0) {
     throw new ClaimValidationError("claim_batch_empty", "No reclaim UTxOs are available for this draft.");
   }
-  if (reclaimUtxos.length > requestedCap || reclaimUtxos.length > CLAIM_HARD_BATCH_CAP) {
+  if (reclaimUtxos.length > requestedCap || reclaimUtxos.length > hardCap) {
     throw new ClaimValidationError("batch_cap_exceeded", "Claim batch exceeds the configured UTxO cap.");
   }
 
@@ -118,7 +120,7 @@ export async function createClaimDraft(
     batchCap: {
       requested: requestedCap,
       default: CLAIM_DEFAULT_BATCH_CAP,
-      hardMax: CLAIM_HARD_BATCH_CAP,
+      hardMax: hardCap,
     },
     orderedInputs,
     orderedPaymentCredentials,
@@ -200,7 +202,8 @@ function reclaimDraftInputFromUtxo(utxo: UTxO, deployment: ReclaimDeployment): C
   };
 }
 
-function assertBatchCap(value: unknown): number {
+function assertBatchCap(value: unknown, deployment: ReclaimDeployment): number {
+  const hardCap = deploymentBatchCap(deployment);
   if (value === undefined || value === null) {
     return CLAIM_DEFAULT_BATCH_CAP;
   }
@@ -210,7 +213,21 @@ function assertBatchCap(value: unknown): number {
   if (value > CLAIM_HARD_BATCH_CAP) {
     throw new ClaimValidationError("batch_cap_exceeded", `Claim batch cap cannot exceed ${CLAIM_HARD_BATCH_CAP} UTxOs.`);
   }
+  if (value > hardCap) {
+    throw new ClaimValidationError("batch_cap_exceeded", `Claim batch cap cannot exceed this deployment's ${hardCap} UTxO limit.`);
+  }
   return value;
+}
+
+function deploymentBatchCap(deployment: ReclaimDeployment): number {
+  const configuredCap = deployment.batching?.hard_max_utxo_count ?? CLAIM_OPTIMIZATION_BATCH_CAP;
+  if (!Number.isInteger(configuredCap) || configuredCap < CLAIM_DEFAULT_BATCH_CAP) {
+    throw new ClaimValidationError(
+      "batch_cap_manifest_invalid",
+      `Claim deployment batch cap must be an integer of at least ${CLAIM_DEFAULT_BATCH_CAP}.`,
+    );
+  }
+  return Math.min(configuredCap, CLAIM_HARD_BATCH_CAP);
 }
 
 function compareDraftInputs(left: ClaimDraftInput, right: ClaimDraftInput): number {
