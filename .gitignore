@@ -36,6 +36,11 @@ apps/ownership-proof-web/public/proof-runtime/*.wasm
 experiments/*
 !experiments/wasm-prover
 experiments/wasm-prover/*
+!experiments/wasm-prover/cmd/
+experiments/wasm-prover/cmd/*
+!experiments/wasm-prover/cmd/ccsgen/
+!experiments/wasm-prover/cmd/pkindex/
+!experiments/wasm-prover/cmd/zk02vectors/
 !experiments/wasm-prover/optimization-backlog.md
 !experiments/wasm-prover/output/
 !experiments/wasm-prover/msmengine
