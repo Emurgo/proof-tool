@@ -147,7 +147,7 @@ function validate(raw) {
     if (batching.hard_max_utxo_count > DISTINCT_7_REQUEST_VALUE) {
       errors.push({
         field: "batching.hard_max_utxo_count",
-        message: "statement-bound V2 hard_max_utxo_count must not exceed the distinct-7 capacity policy",
+        message: "statement-bound V2 hard_max_utxo_count must not exceed the explicit seven-slot capacity policy",
       });
     }
     distinctSevenOptIn(batching.distinct_7_opt_in, "batching.distinct_7_opt_in", errors);
@@ -184,7 +184,7 @@ function validate(raw) {
   } else if (batching.distinct_7_opt_in !== undefined) {
     errors.push({
       field: "batching.distinct_7_opt_in",
-      message: "distinct-7 opt-in metadata is only valid for statement-bound V2",
+      message: "explicit seven-slot opt-in metadata is only valid for statement-bound V2",
     });
   }
   if (raw.enabled === false) {
@@ -251,7 +251,7 @@ function distinctSevenOptIn(value, field, errors) {
   ]);
   for (const key of Object.keys(policy)) {
     if (!allowedFields.has(key)) {
-      errors.push({ field: `${field}.${key}`, message: "is not part of the distinct-7 opt-in policy" });
+      errors.push({ field: `${field}.${key}`, message: "is not part of the explicit seven-slot opt-in policy" });
     }
   }
   exact(

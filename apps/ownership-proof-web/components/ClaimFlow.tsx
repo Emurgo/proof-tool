@@ -287,6 +287,9 @@ type ClaimFlowRuntime = {
   refreshClaimMatches: () => void;
   changeClaimsPage: (page: 1 | 2) => void;
   openClaimAssetModal: (row: ClaimRow) => void;
+  sevenSlotOptInAvailable: boolean;
+  sevenSlotOptIn: boolean;
+  setSevenSlotOptIn: React.Dispatch<React.SetStateAction<boolean>>;
   draft: ClaimDraftResponse | null;
   draftError: string;
   helperState: ClaimHelperState;
@@ -548,6 +551,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const [claimDiscoveryError, setClaimDiscoveryError] = useState("");
   const [assetModalRow, setAssetModalRow] = useState<ClaimRow | null>(null);
   const [assetModalReturnScreen, setAssetModalReturnScreen] = useState<"available-claims-page-1" | "available-claims-page-2">("available-claims-page-1");
+  const [sevenSlotOptIn, setSevenSlotOptIn] = useState(false);
   const [pendingOutrefs, setPendingOutrefs] = useState<string[]>([]);
   const [draft, setDraft] = useState<ClaimDraftResponse | null>(null);
   const [draftError, setDraftError] = useState("");
@@ -569,6 +573,8 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const [submitPhase, setSubmitPhase] = useState<ClaimSubmitPhase>("ready-to-sign");
   const [submittedClaims, setSubmittedClaims] = useState<SubmittedClaimTx[]>([]);
   const [progress, setProgress] = useState<ClaimProgressResponse | null>(null);
+  const sevenSlotOptInAvailable = supportsExplicitSevenSlotBatch(deployment);
+  const useSevenSlotBatch = sevenSlotOptIn && sevenSlotOptInAvailable;
 
   const restoreResumeSnapshot = useCallback((snapshot: ClaimFlowResumeSnapshot) => {
     const resumeScreen = resumableClaimScreen(snapshot.screen);
@@ -1003,6 +1009,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const createOrRefreshClaimDraft = async (
     wallet: SafeWalletSummary | null = safeWallet,
     rows: ClaimRow[] = claimRows,
+    useExplicitSevenSlot = useSevenSlotBatch,
   ): Promise<ClaimDraftResponse | null> => {
     if (!deployment?.available) {
       setDraftError("Claim deployment is unavailable.");
@@ -1014,7 +1021,12 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       setScreen("safe-wallet");
       return null;
     }
-    const selectedRows = selectClaimBatchRows(rows, pendingOutrefs, deployment);
+    const selectedRows = selectClaimBatchRows(
+      rows,
+      pendingOutrefs,
+      deployment,
+      useExplicitSevenSlot ? CLAIM_HARD_BATCH_CAP : undefined,
+    );
     const selectedOutrefs = selectedRows.map((row) => row.outRefId).filter((outRefId): outRefId is string => Boolean(outRefId));
     if (selectedOutrefs.length === 0) {
       setDraftError("No locally matched reclaim UTxOs remain for the next claim batch.");
@@ -1481,7 +1493,8 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
           setScreen("submitted-refreshing");
           return;
         }
-        const nextDraft = await createOrRefreshClaimDraft(safeWallet, nextRows);
+        setSevenSlotOptIn(false);
+        const nextDraft = await createOrRefreshClaimDraft(safeWallet, nextRows, false);
         setScreen(nextDraft ? "create-proofs-ready" : "available-claims-page-1");
       }
     } catch (error) {
@@ -1529,6 +1542,9 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
             refreshClaimMatches: refreshClaimMatchesFromCurrentWallet,
             changeClaimsPage,
             openClaimAssetModal,
+            sevenSlotOptInAvailable,
+            sevenSlotOptIn: useSevenSlotBatch,
+            setSevenSlotOptIn,
             draft,
             draftError,
             helperState,
@@ -1636,6 +1652,9 @@ function renderScreen(
           onBack={goBack}
           onPageChange={runtime.changeClaimsPage}
           onViewAsset={runtime.openClaimAssetModal}
+          sevenSlotOptInAvailable={runtime.sevenSlotOptInAvailable}
+          sevenSlotOptIn={runtime.sevenSlotOptIn}
+          onSevenSlotOptInChange={runtime.setSevenSlotOptIn}
         />
       );
     case "no-matching-funds":
@@ -1652,6 +1671,9 @@ function renderScreen(
           onBack={goBack}
           onPageChange={runtime.changeClaimsPage}
           onViewAsset={runtime.openClaimAssetModal}
+          sevenSlotOptInAvailable={runtime.sevenSlotOptInAvailable}
+          sevenSlotOptIn={runtime.sevenSlotOptIn}
+          onSevenSlotOptInChange={runtime.setSevenSlotOptIn}
         />
       );
     case "available-claims-page-1":
@@ -1668,6 +1690,9 @@ function renderScreen(
           onBack={goBack}
           onPageChange={runtime.changeClaimsPage}
           onViewAsset={runtime.openClaimAssetModal}
+          sevenSlotOptInAvailable={runtime.sevenSlotOptInAvailable}
+          sevenSlotOptIn={runtime.sevenSlotOptIn}
+          onSevenSlotOptInChange={runtime.setSevenSlotOptIn}
         />
       );
     case "available-claims-page-2":
@@ -1684,6 +1709,9 @@ function renderScreen(
           onBack={goBack}
           onPageChange={runtime.changeClaimsPage}
           onViewAsset={runtime.openClaimAssetModal}
+          sevenSlotOptInAvailable={runtime.sevenSlotOptInAvailable}
+          sevenSlotOptIn={runtime.sevenSlotOptIn}
+          onSevenSlotOptInChange={runtime.setSevenSlotOptIn}
         />
       );
     case "safe-wallet":
@@ -2163,6 +2191,9 @@ function AvailableClaims({
   onBack,
   onPageChange,
   onViewAsset,
+  sevenSlotOptInAvailable,
+  sevenSlotOptIn,
+  onSevenSlotOptInChange,
 }: {
   page?: 1 | 2;
   loading?: boolean;
@@ -2177,6 +2208,9 @@ function AvailableClaims({
   onBack: () => void;
   onPageChange: (page: 1 | 2) => void;
   onViewAsset: (row: ClaimRow) => void;
+  sevenSlotOptInAvailable?: boolean;
+  sevenSlotOptIn?: boolean;
+  onSevenSlotOptInChange?: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
   const allRows = realRows ?? (fixtureMode ? claimFixtureData().allClaims : []);
@@ -2187,7 +2221,7 @@ function AvailableClaims({
   const totalLovelace = sumLovelace(allRows);
   const totalAssets = allRows.reduce((total, row) => total + (row.assetCount ?? (row.summary.length > 0 ? row.summary.length : 0)), 0);
   const credentialCount = new Set(allRows.map((row) => row.credential)).size;
-  const batchSize = deployment?.available ? deployment.deployment.batching?.default_utxo_count ?? 4 : 4;
+  const batchSize = sevenSlotOptIn ? CLAIM_HARD_BATCH_CAP : (deployment?.available ? deployment.deployment.batching?.default_utxo_count ?? 4 : 4);
   const estimatedBatches = allRows.length > 0 ? Math.ceil(allRows.length / batchSize) : 0;
   const walletLabel = impactedWallet ? abbreviateMiddle(impactedWallet.addresses[0] ?? impactedWallet.walletName, 14) : "Connect wallet";
   const visibleEmpty = Boolean(empty || (allRows.length === 0 && !loading));
@@ -2218,6 +2252,28 @@ function AvailableClaims({
 
       <div className="claim-content-with-aside">
         <Panel title="Funds you can reclaim" className="claim-table-panel">
+          {sevenSlotOptInAvailable ? (
+            <div className="claim-notice info">
+              <span className="claim-icon-circle">
+                <SlidersHorizontal size={28} aria-hidden="true" />
+              </span>
+              <div>
+                <strong>Optional seven-UTxO batch</strong>
+                <p>
+                  <label className="claim-toggle">
+                    <input
+                      type="checkbox"
+                      aria-label="Use seven UTxOs for the next batch"
+                      checked={Boolean(sevenSlotOptIn)}
+                      onChange={(event) => onSevenSlotOptInChange?.(event.target.checked)}
+                    />
+                    Use seven UTxOs for the next batch
+                  </label>{" "}
+                  This is optional; duplicate credentials do not prevent drafting. Execution units are measured before the transaction can proceed.
+                </p>
+              </div>
+            </div>
+          ) : null}
           <div className="claim-table-tools">
             <label className="claim-search">
               <Search size={18} aria-hidden="true" />
@@ -4249,7 +4305,12 @@ async function postJSON<T>(url: string, body: unknown, headers?: Record<string, 
   });
 }
 
-export function selectClaimBatchRows(rows: ClaimRow[], pendingOutrefs: string[], deployment: ClaimDeploymentResponse): ClaimRow[] {
+export function selectClaimBatchRows(
+  rows: ClaimRow[],
+  pendingOutrefs: string[],
+  deployment: ClaimDeploymentResponse,
+  requestedCap?: number,
+): ClaimRow[] {
   if (!deployment.available) {
     return [];
   }
@@ -4265,10 +4326,29 @@ export function selectClaimBatchRows(rows: ClaimRow[], pendingOutrefs: string[],
     configuredHardCap,
     statementBoundV2 ? CLAIM_HARD_BATCH_CAP : CLAIM_LEGACY_HARD_BATCH_CAP,
   );
+  const selectedCap =
+    statementBoundV2 && requestedCap === CLAIM_HARD_BATCH_CAP && supportsExplicitSevenSlotBatch(deployment)
+      ? CLAIM_HARD_BATCH_CAP
+      : defaultCap;
   return rows
     .filter((row) => row.outRefId && !pending.has(row.outRefId))
     .sort(compareClaimRows)
-    .slice(0, Math.min(defaultCap, hardCap));
+    .slice(0, Math.min(selectedCap, hardCap));
+}
+
+function supportsExplicitSevenSlotBatch(deployment: ClaimDeploymentResponse | null | undefined): boolean {
+  if (!deployment?.available || deployment.deployment.reclaimGlobalProofSlotEncoding !== STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING) {
+    return false;
+  }
+  const batching = deployment.deployment.batching;
+  const optIn = batching?.distinct_7_opt_in;
+  return (
+    batching?.hard_max_utxo_count === CLAIM_HARD_BATCH_CAP &&
+    optIn?.request_parameter === "maxUtxos" &&
+    optIn.request_value === CLAIM_HARD_BATCH_CAP &&
+    optIn.require_explicit_request === true &&
+    optIn.require_measured_execution_units === true
+  );
 }
 
 function compareClaimRows(left: ClaimRow, right: ClaimRow): number {

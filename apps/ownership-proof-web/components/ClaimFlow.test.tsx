@@ -62,11 +62,65 @@ describe("ClaimFlow", () => {
           hard_max_utxo_count: 7,
           max_tx_cpu_percent: 90,
           max_tx_mem_percent: 80,
+          distinct_7_opt_in: {
+            request_parameter: "maxUtxos",
+            request_value: 7,
+            require_explicit_request: true,
+            require_measured_execution_units: true,
+          },
         },
       },
     } as Parameters<typeof selectClaimBatchRows>[2];
 
     expect(selectClaimBatchRows(rows, [], deployment)).toHaveLength(6);
+    expect(selectClaimBatchRows(rows, [], deployment, 7)).toHaveLength(7);
+  });
+
+  it("offers the explicit V2 seven-slot opt-in and drafts seven duplicate credentials without a uniqueness gate", async () => {
+    const selectedOutrefs = Array.from({ length: 7 }, (_, index) => `${(index + 1).toString(16).padStart(64, "0")}#${index}`);
+    const draft = claimDraft(selectedOutrefs);
+    const draftRequests: Array<Record<string, unknown>> = [];
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+        const urlText = String(url);
+        if (urlText === "/claim-api/deployment") {
+          return jsonResponse(statementBoundV2Deployment());
+        }
+        if (urlText.startsWith("/claim-api/reclaim-utxos")) {
+          return jsonResponse(reclaimUtxosWithMatching(7));
+        }
+        if (urlText === "/claim-api/draft") {
+          draftRequests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          return jsonResponse(draft);
+        }
+        throw new Error(`Unexpected fetch ${urlText}`);
+      }),
+    );
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
+    expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
+    const optIn = screen.getByRole("checkbox", { name: "Use seven UTxOs for the next batch" });
+    expect(optIn).not.toBeChecked();
+    fireEvent.click(optIn);
+    expect(optIn).toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue to safe wallet" }));
+    fireEvent.click(await findSafeWalletOption());
+    fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
+
+    await waitFor(() => expect(draftRequests).toHaveLength(1));
+    expect(draftRequests[0]).toMatchObject({
+      maxUtxos: 7,
+      selectedOutrefs,
+    });
   });
 
   it("retains manifest-driven automatic capacity for legacy claim profiles", () => {
@@ -1300,6 +1354,30 @@ function claimDeployment() {
     missing: [],
     errors: [],
     capabilities: {},
+  };
+}
+
+function statementBoundV2Deployment() {
+  const deployment = claimDeployment();
+  return {
+    ...deployment,
+    deployment: {
+      ...deployment.deployment,
+      reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+      batching: {
+        default_utxo_count: 6,
+        optimization_utxo_count: 6,
+        hard_max_utxo_count: 7,
+        max_tx_cpu_percent: 90,
+        max_tx_mem_percent: 80,
+        distinct_7_opt_in: {
+          request_parameter: "maxUtxos",
+          request_value: 7,
+          require_explicit_request: true,
+          require_measured_execution_units: true,
+        },
+      },
+    },
   };
 }
 

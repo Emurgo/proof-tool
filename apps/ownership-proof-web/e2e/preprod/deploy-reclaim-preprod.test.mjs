@@ -57,7 +57,7 @@ describe("reclaim script exporter invocation", () => {
     },
   );
 
-  it("propagates statement-bound V2 key coherence and the explicit distinct-7 capacity policy", () => {
+  it("propagates statement-bound V2 key coherence and the explicit seven-slot capacity policy", () => {
     const manifest = buildManifest({
       sourceCommit: "12".repeat(20),
       baseAddress: "addr_test1_base",

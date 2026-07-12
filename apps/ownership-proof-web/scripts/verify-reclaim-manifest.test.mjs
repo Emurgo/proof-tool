@@ -53,7 +53,7 @@ describe("verify-reclaim-manifest V2 coherence", () => {
     });
   });
 
-  it("accepts the explicit distinct-7 V2 capacity policy", async () => {
+  it("accepts the explicit seven-slot V2 capacity policy", async () => {
     const manifest = statementBoundV2Manifest();
     manifest.batching = {
       default_utxo_count: 6,
@@ -75,7 +75,7 @@ describe("verify-reclaim-manifest V2 coherence", () => {
     );
   });
 
-  it("rejects an automatic or unevaluated distinct-7 V2 batch", async () => {
+  it("rejects an automatic or unevaluated explicit seven-slot V2 batch", async () => {
     const manifest = statementBoundV2Manifest();
     manifest.batching = {
       default_utxo_count: 6,
@@ -105,7 +105,7 @@ describe("verify-reclaim-manifest V2 coherence", () => {
     await expect(verify(manifest)).resolves.toMatchObject({});
   });
 
-  it("rejects distinct-7 opt-in metadata on a non-V2 profile", async () => {
+  it("rejects explicit seven-slot opt-in metadata on a non-V2 profile", async () => {
     const manifest = publicManifest();
     manifest.batching.distinct_7_opt_in = {
       request_parameter: "maxUtxos",

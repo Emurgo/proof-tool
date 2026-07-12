@@ -298,7 +298,7 @@ describe("claim draft server helpers", () => {
     ).rejects.toMatchObject({ code: "batch_cap_exceeded" });
   });
 
-  it("requires seven statement-bound V2 inputs to have distinct payment credentials", async () => {
+  it("allows repeated payment credentials in an explicitly requested seven-slot V2 batch", async () => {
     const reclaimUtxos = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
       reclaimUtxo(
         (index + 1).toString(16).padStart(2, "0"),
@@ -315,16 +315,20 @@ describe("claim draft server helpers", () => {
       safeUtxos: [safeUtxo()],
     });
 
-    await expect(
-      createClaimDraft(provider, STATEMENT_BOUND_V2_DEPLOYMENT, {
-        deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
-        networkId: 0,
-        safeWalletChangeAddress: SAFE_ADDRESS,
-        safeWalletAddresses: [SAFE_ADDRESS],
-        nextBatch: true,
-        maxUtxos: CLAIM_HARD_BATCH_CAP,
-      }),
-    ).rejects.toMatchObject({ code: "batch_distinct_credentials_required" });
+    const draft = await createClaimDraft(provider, STATEMENT_BOUND_V2_DEPLOYMENT, {
+      deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
+      networkId: 0,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      nextBatch: true,
+      maxUtxos: CLAIM_HARD_BATCH_CAP,
+    });
+
+    expect(draft.batchCap.requested).toBe(CLAIM_HARD_BATCH_CAP);
+    expect(draft.orderedInputs).toHaveLength(CLAIM_HARD_BATCH_CAP);
+    expect(
+      draft.orderedInputs.filter((input) => input.paymentCredential === CREDENTIAL_1),
+    ).toHaveLength(2);
   });
 
   it("preserves manifest-driven capacity above seven for legacy deployments", async () => {

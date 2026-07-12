@@ -67,14 +67,14 @@ describe("reclaim deployment manifest validation", () => {
     );
   });
 
-  it("accepts the exact distinct-7 V2 capacity policy", () => {
+  it("accepts the exact explicit seven-slot V2 capacity policy", () => {
     const manifest = withDistinctSevenCapacityPolicy(validManifest());
 
     const result = loadReclaimDeployment({ env: envFromManifest(manifest) });
 
     expect(result.available).toBe(true);
     if (!result.available) {
-      throw new Error("expected distinct-7 capacity policy to validate");
+      throw new Error("expected explicit seven-slot capacity policy to validate");
     }
     expect(result.manifest.batching).toEqual({
       default_utxo_count: 6,
@@ -91,7 +91,7 @@ describe("reclaim deployment manifest validation", () => {
     });
   });
 
-  it("fails closed when a distinct-7 manifest omits or changes its capacity policy", () => {
+  it("fails closed when an explicit seven-slot manifest omits or changes its capacity policy", () => {
     const missingOptIn = withDistinctSevenCapacityPolicy(validManifest());
     delete missingOptIn.batching.distinct_7_opt_in;
     expect(errorCodes(validateReclaimDeploymentManifest(missingOptIn))).toContain(
@@ -124,7 +124,7 @@ describe("reclaim deployment manifest validation", () => {
     );
   });
 
-  it("rejects a statement-bound V2 hard batch maximum above the distinct-7 policy", () => {
+  it("rejects a statement-bound V2 hard batch maximum above the explicit seven-slot policy", () => {
     const manifest = withDistinctSevenCapacityPolicy(validManifest());
     manifest.batching.hard_max_utxo_count = 8;
 
@@ -140,7 +140,7 @@ describe("reclaim deployment manifest validation", () => {
     expect(validateReclaimDeploymentManifest(manifest).available).toBe(true);
   });
 
-  it("rejects distinct-7 opt-in metadata on a non-V2 profile", () => {
+  it("rejects explicit seven-slot opt-in metadata on a non-V2 profile", () => {
     const manifest = validManifest();
     manifest.batching.distinct_7_opt_in = {
       request_parameter: "maxUtxos",

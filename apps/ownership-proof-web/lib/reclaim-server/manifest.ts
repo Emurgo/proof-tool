@@ -636,14 +636,14 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       errors.push({
         code: "batch_hard_max_exceeds_policy",
         field: "batching.hard_max_utxo_count",
-        message: "statement-bound V2 hard_max_utxo_count must not exceed the distinct-7 capacity policy.",
+        message: "statement-bound V2 hard_max_utxo_count must not exceed the explicit seven-slot capacity policy.",
       });
     }
     if (!manifest.batching.distinct_7_opt_in) {
       errors.push({
         code: "distinct_7_opt_in_required",
         field: "batching.distinct_7_opt_in",
-        message: "statement-bound V2 requires explicit distinct-7 opt-in metadata.",
+        message: "statement-bound V2 requires explicit seven-slot opt-in metadata.",
       });
     }
     requireDistinctSevenCapacityValue(
@@ -680,7 +680,7 @@ export function validateReclaimDeploymentManifest(raw: unknown):
     errors.push({
       code: "distinct_7_opt_in_requires_v2",
       field: "batching.distinct_7_opt_in",
-      message: "distinct-7 opt-in metadata is only valid for statement-bound V2.",
+      message: "explicit seven-slot opt-in metadata is only valid for statement-bound V2.",
     });
   }
   if (manifest.enabled === false) {
@@ -1144,7 +1144,7 @@ function optionalDistinctSevenOptInField(
       errors.push({
         code: "unsupported_field",
         field: `${field}.${key}`,
-        message: `${field}.${key} is not part of the distinct-7 opt-in policy.`,
+        message: `${field}.${key} is not part of the explicit seven-slot opt-in policy.`,
       });
     }
   }
@@ -1186,7 +1186,7 @@ function requireDistinctSevenCapacityValue(
     errors.push({
       code: "distinct_7_capacity_policy_mismatch",
       field,
-      message: `${field} must be ${expected} for the distinct-7 capacity policy.`,
+      message: `${field} must be ${expected} for the explicit seven-slot capacity policy.`,
     });
   }
 }

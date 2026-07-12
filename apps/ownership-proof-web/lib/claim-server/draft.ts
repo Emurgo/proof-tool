@@ -43,7 +43,6 @@ const STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING = "full-proof-plus-public-input-dig
 type ClaimBatchPolicy = {
   defaultCap: number;
   hardCap: number;
-  statementBoundV2: boolean;
 };
 
 export async function createClaimDraft(
@@ -99,16 +98,6 @@ export async function createClaimDraft(
     .map((utxo) => reclaimDraftInputFromUtxo(utxo, deployment))
     .sort(compareDraftInputs);
   const orderedPaymentCredentials = orderedInputs.map((input) => input.paymentCredential);
-  if (
-    batchPolicy.statementBoundV2 &&
-    orderedPaymentCredentials.length === CLAIM_HARD_BATCH_CAP &&
-    new Set(orderedPaymentCredentials).size !== orderedPaymentCredentials.length
-  ) {
-    throw new ClaimValidationError(
-      "batch_distinct_credentials_required",
-      "A seven-UTxO statement-bound V2 claim batch requires distinct payment credentials.",
-    );
-  }
   const destinationBytes = destinationAddressV1(safeWallet.changeAddress, deployment.networkId);
   const destinationOutputs: ClaimDraftDestinationOutput[] = orderedInputs.map((input) => ({
     outRefId: input.outRefId,
@@ -255,13 +244,12 @@ function deploymentBatchPolicy(deployment: ReclaimDeployment): ClaimBatchPolicy 
     ) {
       throw new ClaimValidationError(
         "batch_cap_manifest_invalid",
-        "Statement-bound V2 requires the explicit distinct-7 batching policy and measured execution limits.",
+        "Statement-bound V2 requires the explicit seven-slot batching policy and measured execution limits.",
       );
     }
     return {
       defaultCap: CLAIM_DEFAULT_BATCH_CAP,
       hardCap: CLAIM_HARD_BATCH_CAP,
-      statementBoundV2: true,
     };
   }
 
@@ -286,7 +274,6 @@ function deploymentBatchPolicy(deployment: ReclaimDeployment): ClaimBatchPolicy 
   return {
     defaultCap: configuredDefault,
     hardCap,
-    statementBoundV2: false,
   };
 }
 
