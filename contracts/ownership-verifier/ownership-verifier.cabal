@@ -72,6 +72,7 @@ benchmark ownership-verifier-bench
     bench
     test-support
   other-modules:
+    Protocol11Snapshot
     ScriptContextBuilder
   build-depends:
     , aeson               >= 2.0
@@ -83,6 +84,9 @@ benchmark ownership-verifier-bench
     , plutus-ledger-api   >= 1.30 && < 2
     , plutus-tx           >= 1.30 && < 2
     , plutus-tx-plugin    >= 1.30 && < 2
+    , process             >= 1.6
+    , text                >= 2.0
+    , transformers        >= 0.6
   ghc-options:
     -fplugin PlutusTx.Plugin
     -fplugin-opt PlutusTx.Plugin:remove-trace
