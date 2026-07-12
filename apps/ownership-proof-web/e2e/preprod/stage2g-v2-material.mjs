@@ -46,13 +46,35 @@ export async function generateStage2gV2Material(options = {}) {
   const log = options.log ?? console.log;
 
   assertMaterialGenerationGate(env);
-  const walletPath = resolveExistingLocalFile(env[WALLET_FILE_ENV], WALLET_FILE_ENV, repoRoot);
   const keysDir = resolveExistingLocalDirectory(env[KEYS_DIR_ENV], KEYS_DIR_ENV, repoRoot);
   const manifestPublicKeyFile = resolveExistingLocalFile(env[MANIFEST_PUBLIC_KEY_FILE_ENV], MANIFEST_PUBLIC_KEY_FILE_ENV, repoRoot);
   assertExternalManifestPublicKeyFile(manifestPublicKeyFile, keysDir);
   const signatureKeyID = resolveRequiredEnvValue(env[SIGNATURE_KEY_ID_ENV], SIGNATURE_KEY_ID_ENV);
   const materialPath = resolveMaterialOutputPath(env, repoRoot, options.materialPath);
   const materialOutputPath = stage2gRelativeOutputPath(materialPath, repoRoot);
+  try {
+    await execFileFn(
+      "go",
+      [
+        "run",
+        "./cmd/proof-tool",
+        "verify-stage2g-v2-key-bundle",
+        "--keys-dir",
+        keysDir,
+        "--manifest-public-key-file",
+        manifestPublicKeyFile,
+        "--signature-key-id",
+        signatureKeyID,
+      ],
+      { cwd: repoRoot, maxBuffer: 1024 * 1024 },
+    );
+  } catch (error) {
+    throw new Stage2gV2MaterialError(
+      "stage2g_key_bundle_verification_failed",
+      `Stage 2g signed key-bundle verification failed: ${redactError(error)}.`,
+    );
+  }
+  const walletPath = resolveExistingLocalFile(env[WALLET_FILE_ENV], WALLET_FILE_ENV, repoRoot);
   const safeDestination = loadSafeDestination(walletPath, readTextFile);
 
   try {

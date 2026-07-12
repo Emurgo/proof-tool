@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -34,6 +35,8 @@ const NETWORK_ID = 0;
 const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";
 const REQUIRED_LIVE_GATE = "RECLAIM_E2E_LIVE_PREPROD";
 const REQUIRED_GATE = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
+const STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE_ENV = "RECLAIM_E2E_STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE";
+const STAGE2G_V2_SIGNATURE_KEY_ID_ENV = "RECLAIM_E2E_STAGE2G_V2_SIGNATURE_KEY_ID";
 const DEFAULT_MANIFEST_PATH = "deployments/reclaim/preprod/live.local.json";
 const DEFAULT_CARDANO_VK_DIR = "output/preprod-e2e/destination-cardano-vk.local";
 const PARAMS_TOKEN_NAME = "5245434c41494d504152414d53"; // RECLAIMPARAMS
@@ -437,31 +440,43 @@ async function isRewardAccountRegistered(env, rewardAddress) {
   throw new DeployPreprodError("provider_unsupported", "RECLAIM_PROVIDER must be blockfrost or koios.");
 }
 
-async function prepareDestinationKeys({ env, repoRoot, git }) {
+export async function prepareDestinationKeys({ env, repoRoot, git, runGoFn = runGo }) {
   void git;
   const configured = env.RECLAIM_DESTINATION_KEYS_DIR?.trim() || env.RECLAIM_E2E_DESTINATION_KEYS_DIR?.trim();
   if (!configured) {
     throw new DeployPreprodError("destination_keys_dir_missing", "RECLAIM_DESTINATION_KEYS_DIR or RECLAIM_E2E_DESTINATION_KEYS_DIR is required.");
   }
   const keysDir = path.isAbsolute(configured) ? configured : path.resolve(repoRoot, configured);
+  const manifestPublicKeyFile = requireDestinationTrustEnv(
+    env[STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE_ENV],
+    STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE_ENV,
+    "stage2g_manifest_public_key_missing",
+  );
+  const signatureKeyID = requireDestinationTrustEnv(
+    env[STAGE2G_V2_SIGNATURE_KEY_ID_ENV],
+    STAGE2G_V2_SIGNATURE_KEY_ID_ENV,
+    "stage2g_signature_key_id_missing",
+  );
   if (!hasKeyBundle(keysDir)) {
     throw new DeployPreprodError("destination_key_bundle_missing", "Destination key bundle must already exist; deployment will not create proof keys.");
   }
-  await runGo(repoRoot, [
+  const trustedManifestPublicKeyFile = resolveExternalManifestPublicKeyFile(manifestPublicKeyFile, repoRoot, keysDir);
+  await verifyDestinationKeyBundle(runGoFn, repoRoot, [
     "run",
     "./cmd/proof-tool",
-    "verify-key-bundle",
+    "verify-stage2g-v2-key-bundle",
     "--keys-dir",
     keysDir,
-    "--key-version",
-    "ownership-destination-v1",
-    "--require-proving-key=true",
+    "--manifest-public-key-file",
+    trustedManifestPublicKeyFile,
+    "--signature-key-id",
+    signatureKeyID,
   ]);
   const cardanoDir = path.resolve(repoRoot, env.RECLAIM_DESTINATION_CARDANO_VK_DIR?.trim() || DEFAULT_CARDANO_VK_DIR);
   mkdirSync(cardanoDir, { recursive: true });
   const cardanoVkPath = path.join(cardanoDir, "vk.hex");
   const formatPath = path.join(cardanoDir, "format.txt");
-  const exportOutput = await runGo(repoRoot, [
+  const exportOutput = await runGoFn(repoRoot, [
     "run",
     "./cmd/proof-tool",
     "export-cardano-vk",
@@ -485,6 +500,65 @@ async function prepareDestinationKeys({ env, repoRoot, git }) {
     vkHash: manifest.vk_hash,
     cardanoVkBlake2b256: parseLine(exportOutput.stdout, "cardano_vk_blake2b256"),
   };
+}
+
+function requireDestinationTrustEnv(value, envName, errorCode) {
+  const resolved = typeof value === "string" ? value.trim() : "";
+  if (!resolved) {
+    throw new DeployPreprodError(errorCode, `${envName} is required before destination key export.`);
+  }
+  return resolved;
+}
+
+function resolveExternalManifestPublicKeyFile(configured, repoRoot, keysDir) {
+  const requestedPath = path.isAbsolute(configured) ? path.resolve(configured) : path.resolve(repoRoot, configured);
+  let resolvedManifestPublicKeyFile;
+  let resolvedKeysDir;
+  try {
+    resolvedManifestPublicKeyFile = realpathSync(requestedPath);
+    resolvedKeysDir = realpathSync(keysDir);
+  } catch {
+    throw new DeployPreprodError(
+      "stage2g_manifest_public_key_invalid",
+      "The trusted destination manifest public-key file could not be resolved.",
+    );
+  }
+  if (pathIsWithin(resolvedKeysDir, resolvedManifestPublicKeyFile)) {
+    throw new DeployPreprodError(
+      "stage2g_manifest_public_key_not_external",
+      "The trusted destination manifest public-key file must be outside the destination key bundle.",
+    );
+  }
+  try {
+    if (!statSync(resolvedManifestPublicKeyFile).isFile()) {
+      throw new Error("not a file");
+    }
+  } catch {
+    throw new DeployPreprodError(
+      "stage2g_manifest_public_key_invalid",
+      "The trusted destination manifest public-key file must resolve to a regular file.",
+    );
+  }
+  // Pass the normalized requested path rather than the canonical target. The
+  // specialized verifier must still see a direct symlink so it can reject it;
+  // the canonical path above is used only for containment validation.
+  return requestedPath;
+}
+
+function pathIsWithin(root, target) {
+  const relative = path.relative(root, target);
+  return relative === "" || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`));
+}
+
+async function verifyDestinationKeyBundle(runGoFn, repoRoot, args) {
+  try {
+    await runGoFn(repoRoot, args);
+  } catch {
+    throw new DeployPreprodError(
+      "destination_key_bundle_trust_verification_failed",
+      "Destination key bundle trust verification failed.",
+    );
+  }
 }
 
 function hasKeyBundle(keysDir) {

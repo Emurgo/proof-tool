@@ -20,6 +20,8 @@ apps/proof-helper-desktop/src-tauri/*/target/
 apps/proof-helper-desktop/src-tauri/binaries/proof-tool-*
 contracts/ownership-verifier/dist-newstyle/
 .codex/*
+.claude/
+.wrangler/
 vendor/
 # Reproducible WASM build products (regenerate via scripts/build-wasm-prover.sh
 # then scripts/stage-proof-assets.sh). Too large for git; hash-pinned by the

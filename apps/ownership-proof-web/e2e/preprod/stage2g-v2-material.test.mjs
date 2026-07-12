@@ -34,6 +34,9 @@ describe("Stage 2g V2 material generator", () => {
     const material = benchmarkMaterial(destination);
     const log = vi.fn();
     const execFile = vi.fn(async (_command, args) => {
+      if (args.includes("verify-stage2g-v2-key-bundle")) {
+        return { stdout: "", stderr: "" };
+      }
       const outputIndex = args.indexOf("--out") + 1;
       const outputPath = path.resolve(repoRoot, args[outputIndex]);
       mkdirSync(path.dirname(outputPath), { recursive: true, mode: 0o700 });
@@ -55,7 +58,20 @@ describe("Stage 2g V2 material generator", () => {
     });
 
     expect(result.ok).toBe(true);
-    const args = execFile.mock.calls[0][1];
+    expect(execFile).toHaveBeenCalledTimes(2);
+    const verificationArgs = execFile.mock.calls[0][1];
+    expect(verificationArgs).toEqual(
+      expect.arrayContaining([
+        "verify-stage2g-v2-key-bundle",
+        "--keys-dir",
+        keysDir,
+        "--manifest-public-key-file",
+        trustedManifestPublicKeyPath,
+        "--signature-key-id",
+        "preprod-stage2g-v2-release-signer",
+      ]),
+    );
+    const args = execFile.mock.calls[1][1];
     expect(args).toContain("generate-stage2g-v2-material");
     expect(args).toContain(walletPath);
     expect(args).toContain(keysDir);
@@ -81,6 +97,8 @@ describe("Stage 2g V2 material generator", () => {
     expect(serializedLog).not.toContain(wallet.wallets.compromised_user.mnemonic);
     expect(serializedLog).not.toContain(material.entries[0].proof_hex);
     expect(serializedLog).not.toContain(material.entries[0].credential);
+    expect(serializedLog).not.toContain(trustedManifestPublicKeyPath);
+    expect(serializedLog).not.toContain("preprod-stage2g-v2-release-signer");
   });
 
   it("requires an independently supplied manifest trust identity before executing Go", async () => {
@@ -92,6 +110,7 @@ describe("Stage 2g V2 material generator", () => {
     writeFileSync(trustedManifestPublicKeyPath, "ab".repeat(32), { mode: 0o600 });
     mkdirSync(keysDir, { recursive: true, mode: 0o700 });
     const execFile = vi.fn();
+    const readTextFile = vi.fn();
 
     await expect(
       generateStage2gV2Material({
@@ -102,6 +121,7 @@ describe("Stage 2g V2 material generator", () => {
         }),
         repoRoot,
         execFile,
+        readTextFile,
       }),
     ).rejects.toBeInstanceOf(Stage2gV2MaterialError);
     await expect(
@@ -113,9 +133,100 @@ describe("Stage 2g V2 material generator", () => {
         }),
         repoRoot,
         execFile,
+        readTextFile,
       }),
     ).rejects.toBeInstanceOf(Stage2gV2MaterialError);
     expect(execFile).not.toHaveBeenCalled();
+    expect(readTextFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a bundle-contained trust anchor before reading wallet material or executing Go", async () => {
+    const repoRoot = tempDir();
+    const walletPath = path.join(repoRoot, "wallets.json");
+    const keysDir = path.join(repoRoot, "keys");
+    const bundledManifestPublicKeyPath = path.join(keysDir, "manifest-public-key.hex");
+    writeFileSync(walletPath, JSON.stringify(walletFile()), { mode: 0o600 });
+    mkdirSync(keysDir, { recursive: true, mode: 0o700 });
+    writeFileSync(bundledManifestPublicKeyPath, "ab".repeat(32), { mode: 0o600 });
+    const execFile = vi.fn();
+    const readTextFile = vi.fn();
+
+    await expect(
+      generateStage2gV2Material({
+        env: gates({
+          PREPROD_TEST_WALLETS_FILE: "wallets.json",
+          RECLAIM_E2E_STAGE2G_V2_KEYS_DIR: "keys",
+          RECLAIM_E2E_STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE: "keys/manifest-public-key.hex",
+          RECLAIM_E2E_STAGE2G_V2_SIGNATURE_KEY_ID: "preprod-stage2g-v2-release-signer",
+        }),
+        repoRoot,
+        execFile,
+        readTextFile,
+      }),
+    ).rejects.toMatchObject({ code: "trusted_manifest_public_key_not_external" });
+    expect(execFile).not.toHaveBeenCalled();
+    expect(readTextFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a symlink-contained trust anchor before reading wallet material or executing Go", async () => {
+    const repoRoot = tempDir();
+    const walletPath = path.join(repoRoot, "wallets.json");
+    const keysDir = path.join(repoRoot, "keys");
+    const bundledManifestPublicKeyPath = path.join(keysDir, "manifest-public-key.hex");
+    const anchorRoot = path.join(repoRoot, "external-anchor-root");
+    const symlinkedBundle = path.join(anchorRoot, "bundle-link");
+    writeFileSync(walletPath, JSON.stringify(walletFile()), { mode: 0o600 });
+    mkdirSync(keysDir, { recursive: true, mode: 0o700 });
+    mkdirSync(anchorRoot, { recursive: true, mode: 0o700 });
+    writeFileSync(bundledManifestPublicKeyPath, "ab".repeat(32), { mode: 0o600 });
+    symlinkSync(keysDir, symlinkedBundle, "dir");
+    const execFile = vi.fn();
+    const readTextFile = vi.fn();
+
+    await expect(
+      generateStage2gV2Material({
+        env: gates({
+          PREPROD_TEST_WALLETS_FILE: "wallets.json",
+          RECLAIM_E2E_STAGE2G_V2_KEYS_DIR: "keys",
+          RECLAIM_E2E_STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE: "external-anchor-root/bundle-link/manifest-public-key.hex",
+          RECLAIM_E2E_STAGE2G_V2_SIGNATURE_KEY_ID: "preprod-stage2g-v2-release-signer",
+        }),
+        repoRoot,
+        execFile,
+        readTextFile,
+      }),
+    ).rejects.toMatchObject({ code: "trusted_manifest_public_key_not_external" });
+    expect(execFile).not.toHaveBeenCalled();
+    expect(readTextFile).not.toHaveBeenCalled();
+  });
+
+  it("verifies the signed key bundle before resolving or reading the wallet", async () => {
+    const repoRoot = tempDir();
+    const keysDir = path.join(repoRoot, "keys");
+    const trustedManifestPublicKeyPath = path.join(repoRoot, "trusted-manifest-public-key.hex");
+    mkdirSync(keysDir, { recursive: true, mode: 0o700 });
+    writeFileSync(trustedManifestPublicKeyPath, "ab".repeat(32), { mode: 0o600 });
+    const execFile = vi.fn(async () => {
+      throw new Error("manifest signature_key_id mismatch");
+    });
+    const readTextFile = vi.fn();
+
+    await expect(
+      generateStage2gV2Material({
+        env: gates({
+          PREPROD_TEST_WALLETS_FILE: "missing-wallets.json",
+          RECLAIM_E2E_STAGE2G_V2_KEYS_DIR: "keys",
+          RECLAIM_E2E_STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE: "trusted-manifest-public-key.hex",
+          RECLAIM_E2E_STAGE2G_V2_SIGNATURE_KEY_ID: "preprod-stage2g-v2-release-signer",
+        }),
+        repoRoot,
+        execFile,
+        readTextFile,
+      }),
+    ).rejects.toMatchObject({ code: "stage2g_key_bundle_verification_failed" });
+    expect(execFile).toHaveBeenCalledTimes(1);
+    expect(execFile.mock.calls[0][1]).toContain("verify-stage2g-v2-key-bundle");
+    expect(readTextFile).not.toHaveBeenCalled();
   });
 
   it("rejects an existing intermediate material-output symlink before executing Go", async () => {

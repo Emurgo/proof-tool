@@ -1,12 +1,19 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/blake2b"
+
+	"proof-tool/internal/artifact"
+	"proof-tool/internal/circuit/ownershipdest"
 	"proof-tool/internal/prover"
 )
 
@@ -91,14 +98,63 @@ func TestCmdGenerateStage2gV2MaterialDoesNotEchoUnexpectedPositionalArgument(t *
 	}
 }
 
+func TestCmdGenerateStage2gV2MaterialRequiresTrustFlagsBeforeWalletAccess(t *testing.T) {
+	const mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+	walletPath := filepath.Join(t.TempDir(), "wallet-with-"+mnemonic)
+	for _, args := range [][]string{
+		{"--wallet-file", walletPath, "--keys-dir", t.TempDir()},
+		{"--wallet-file", walletPath, "--keys-dir", t.TempDir(), "--manifest-public-key-file", filepath.Join(t.TempDir(), "trusted.hex")},
+		{"--wallet-file", walletPath, "--keys-dir", t.TempDir(), "--manifest-public-key-file", " ", "--signature-key-id", "stage2g-test-signer"},
+		{"--wallet-file", walletPath, "--keys-dir", t.TempDir(), "--manifest-public-key-file", filepath.Join(t.TempDir(), "trusted.hex"), "--signature-key-id", " "},
+	} {
+		err := cmdGenerateStage2gV2Material(args)
+		if err == nil || !strings.Contains(err.Error(), "--manifest-public-key-file and --signature-key-id are required") {
+			t.Fatalf("missing trust flags error = %v", err)
+		}
+		if strings.Contains(err.Error(), mnemonic) || strings.Contains(err.Error(), "read local Stage 2g wallet file") {
+			t.Fatalf("missing trust flags accessed or leaked wallet material: %v", err)
+		}
+	}
+}
+
 func TestStage2gTrustedManifestPublicKeyRejectsBundledPublicKeyFile(t *testing.T) {
 	keysDir := t.TempDir()
 	bundledPublicKey := filepath.Join(keysDir, manifestPublicKeyFile)
 	if err := os.WriteFile(bundledPublicKey, []byte(strings.Repeat("ab", 32)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := stage2gTrustedManifestPublicKey(keysDir, bundledPublicKey); err == nil {
-		t.Fatal("stage2gTrustedManifestPublicKey accepted a trust anchor from inside --keys-dir")
+	if _, err := stage2gTrustedManifestPublicKey(keysDir, bundledPublicKey); err == nil || err.Error() != "--manifest-public-key-file must be outside --keys-dir" {
+		t.Fatalf("bundled trust-anchor error = %v", err)
+	}
+}
+
+func TestStage2gTrustedManifestPublicKeyRejectsSymlinkContainedPublicKeyFile(t *testing.T) {
+	keysDir := t.TempDir()
+	bundledPublicKey := filepath.Join(keysDir, manifestPublicKeyFile)
+	if err := os.WriteFile(bundledPublicKey, []byte(strings.Repeat("ab", 32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	redirect := filepath.Join(t.TempDir(), "bundle-link")
+	if err := os.Symlink(keysDir, redirect); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stage2gTrustedManifestPublicKey(keysDir, filepath.Join(redirect, manifestPublicKeyFile)); err == nil || err.Error() != "--manifest-public-key-file must be outside --keys-dir" {
+		t.Fatalf("symlink-contained trust-anchor error = %v", err)
+	}
+}
+
+func TestStage2gTrustedManifestPublicKeyRejectsHardLinkContainedPublicKeyFile(t *testing.T) {
+	keysDir := t.TempDir()
+	bundledPublicKey := filepath.Join(keysDir, manifestPublicKeyFile)
+	if err := os.WriteFile(bundledPublicKey, []byte(strings.Repeat("ab", 32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	externalHardLink := filepath.Join(t.TempDir(), "trusted-manifest-public-key.hex")
+	if err := os.Link(bundledPublicKey, externalHardLink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stage2gTrustedManifestPublicKey(keysDir, externalHardLink); err == nil || err.Error() != "--manifest-public-key-file must not be hard-linked into --keys-dir" {
+		t.Fatalf("hard-linked trust-anchor error = %v", err)
 	}
 }
 
@@ -115,6 +171,27 @@ func TestStage2gTrustedManifestPublicKeyAcceptsExternalRegularFile(t *testing.T)
 	}
 	if got != want {
 		t.Fatalf("trusted public key = %q, want %q", got, want)
+	}
+}
+
+func TestCmdGenerateStage2gV2MaterialRejectsWrongSignatureKeyIDBeforeWalletAccess(t *testing.T) {
+	keysDir, trustedPublicKey, signatureKeyID := writeStage2gTestSignedBundle(t)
+	missingWallet := filepath.Join(t.TempDir(), "wallets.json")
+	err := cmdGenerateStage2gV2Material(stage2gTestCommandArgs(missingWallet, keysDir, trustedPublicKey, "wrong-"+signatureKeyID))
+	if err == nil || !strings.Contains(err.Error(), "manifest signature_key_id") {
+		t.Fatalf("wrong signature key id error = %v", err)
+	}
+	if strings.Contains(err.Error(), "read local Stage 2g wallet file") {
+		t.Fatalf("wrong signature key id reached wallet access: %v", err)
+	}
+}
+
+func TestCmdGenerateStage2gV2MaterialAcceptsValidExternalSignedBundleBeforeWalletAccess(t *testing.T) {
+	keysDir, trustedPublicKey, signatureKeyID := writeStage2gTestSignedBundle(t)
+	missingWallet := filepath.Join(t.TempDir(), "wallets.json")
+	err := cmdGenerateStage2gV2Material(stage2gTestCommandArgs(missingWallet, keysDir, trustedPublicKey, signatureKeyID))
+	if err == nil || err.Error() != "read local Stage 2g wallet file" {
+		t.Fatalf("valid external signed bundle did not reach wallet stage: %v", err)
 	}
 }
 
@@ -193,4 +270,76 @@ func TestStage2gSyntheticHashesAreStableAndDistinct(t *testing.T) {
 	if first == stage2gSyntheticHash("bootstrap-0") {
 		t.Fatal("different synthetic labels produced the same outref hash")
 	}
+}
+
+func stage2gTestCommandArgs(walletPath, keysDir, trustedPublicKey, signatureKeyID string) []string {
+	return []string{
+		"--wallet-file", walletPath,
+		"--keys-dir", keysDir,
+		"--manifest-public-key-file", trustedPublicKey,
+		"--signature-key-id", signatureKeyID,
+		"--destination-address", "addr_test1stage2gdestination",
+		"--destination-address-bytes", strings.Repeat("ab", stage2gDestinationByteCount),
+	}
+}
+
+func writeStage2gTestSignedBundle(t *testing.T) (keysDir, trustedPublicKey, signatureKeyID string) {
+	t.Helper()
+	keysDir = t.TempDir()
+	pk := []byte("stage2g test proving key")
+	vk := []byte("stage2g test verifying key")
+	pkPath := filepath.Join(keysDir, "ownership.pk")
+	vkPath := filepath.Join(keysDir, "ownership.vk")
+	if err := os.WriteFile(pkPath, pk, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(vkPath, vk, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkSHA256, pkBlake2b256 := stage2gTestFileDigests(pk)
+	vkSHA256, vkBlake2b256 := stage2gTestFileDigests(vk)
+	signatureKeyID = "stage2g-test-signer"
+	manifest := &artifact.KeyManifest{
+		Schema:               artifact.ManifestSchema,
+		KeyVersion:           prover.DefaultDestinationKeyVersion,
+		CircuitID:            ownershipdest.CircuitID,
+		Curve:                "BLS12-381",
+		Backend:              "groth16",
+		VKHash:               vkBlake2b256,
+		ProvingKeySHA256:     pkSHA256,
+		ProvingKeyBlake2b256: pkBlake2b256,
+		ProvingKeySize:       int64(len(pk)),
+		VerifyingKeySHA256:   vkSHA256,
+		VerifyingKeySize:     int64(len(vk)),
+		SignatureKeyID:       signatureKeyID,
+	}
+	manifestPath := filepath.Join(keysDir, "manifest.json")
+	if err := artifact.WriteJSON(manifestPath, manifest); err != nil {
+		t.Fatal(err)
+	}
+	seed := make([]byte, ed25519.SeedSize)
+	for index := range seed {
+		seed[index] = byte(index + 1)
+	}
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := ed25519.Sign(privateKey, manifestBytes)
+	if err := os.WriteFile(filepath.Join(keysDir, manifestSignatureFile), []byte(hex.EncodeToString(signature)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trustedPublicKey = filepath.Join(t.TempDir(), "trusted-manifest-public-key.hex")
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	if err := os.WriteFile(trustedPublicKey, []byte(hex.EncodeToString(publicKey)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return keysDir, trustedPublicKey, signatureKeyID
+}
+
+func stage2gTestFileDigests(data []byte) (sha256Digest, blake2b256Digest string) {
+	sha := sha256.Sum256(data)
+	blake := blake2b.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sha[:]), "blake2b256:" + hex.EncodeToString(blake[:])
 }

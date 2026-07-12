@@ -102,6 +102,70 @@ The harness snapshots the manifest into each run directory before app startup,
 preventing a concurrent deployment-file change from mixing page state with a
 different backend deployment.
 
+## Statement-Bound V2 Stage 2g Evaluation
+
+Before deploying the statement-bound V2 validator, run its guarded seven-slot
+provider evaluation from a clean release candidate. This stage is deliberately
+unsigned and non-submitting: it constructs a production-shaped transaction
+with seven distinct credential/proof/digest slots and asks the configured
+Preprod provider to evaluate it.
+
+First generate the ignored, local-only material with the signed bundle and an
+independently provisioned manifest trust identity. The public-key file must be
+outside the key-bundle directory and must not be linked to a bundle file.
+
+```bash
+set -a
+source .env.local
+set +a
+
+unset RECLAIM_E2E_SUBMIT_TRANSACTIONS
+RECLAIM_E2E_LIVE_PREPROD=1 \
+RECLAIM_E2E_STAGE2G_V2_MATERIAL=1 \
+RECLAIM_E2E_STAGE2G_V2_KEYS_DIR=/path/to/signed-v2-key-bundle \
+RECLAIM_E2E_STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE=/independent/path/manifest-public-key.hex \
+RECLAIM_E2E_STAGE2G_V2_SIGNATURE_KEY_ID='<approved-signer-id>' \
+RECLAIM_E2E_STAGE2G_V2_MATERIAL_FILE=output/preprod-e2e/stage2g-v2/material.local.json \
+pnpm --dir apps/ownership-proof-web e2e:preprod:stage2g:v2:material
+```
+
+The generator verifies the external trust anchor, expected signer identity,
+manifest signature, and bundle hashes before it reads either wallet role.
+
+```bash
+set -a
+source .env.local
+set +a
+
+unset RECLAIM_E2E_SUBMIT_TRANSACTIONS
+RECLAIM_E2E_LIVE_PREPROD=1 \
+RECLAIM_E2E_STAGE2G_V2_EVALUATE=1 \
+RECLAIM_E2E_STAGE2G_V2_MATERIAL_FILE=output/preprod-e2e/stage2g-v2/material.local.json \
+RECLAIM_E2E_STAGE2G_V2_EVIDENCE_FILE=output/preprod-e2e/stage2g-v2/evaluation.local.json \
+pnpm --dir apps/ownership-proof-web e2e:preprod:stage2g:v2:evaluate
+```
+
+The evaluator must report all safety fields false for signing, submission,
+funding, minting, stake registration, and deployment. Passing requires total
+CPU at or below 90% and memory at or below 80%. The release-facing redacted
+record belongs under `contracts/ownership-verifier/bench/results/`; the raw
+local material and provider response remain ignored.
+
+This provider result is not Gate G2 and must not be described as an accepted
+claim. After deployment, G2 requires a real all-distinct-7 transaction:
+
+1. Fund seven ReclaimBase UTxOs whose pairwise-distinct payment credentials
+   are derived from the same test root private key.
+2. Prove through the actual web application with the deployed signed bundle.
+3. Build, evaluate, sign with the safe wallet, submit, and confirm the claim.
+4. Record the evaluator units, accepted on-chain units, and transaction hash.
+5. Stop and investigate before proceeding if measured on-chain units differ
+   from the release benchmark by more than 5%.
+
+Duplicate credentials are never a builder admission failure. The default batch
+remains six; seven is explicit opt-in and is governed by measured execution
+units, irrespective of credential duplication.
+
 ## Running The Injected-Wallet Lane
 
 Start a real destination helper separately and set its printed loopback origin

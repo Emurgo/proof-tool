@@ -107,12 +107,8 @@ func cmdGenerateStage2gV2Material(args []string) error {
 	if strings.TrimSpace(*manifestPublicKeyFile) == "" || strings.TrimSpace(*expectedSignatureKeyID) == "" {
 		return errors.New("--manifest-public-key-file and --signature-key-id are required")
 	}
-	publicKeyHex, err := stage2gTrustedManifestPublicKey(*keysDir, *manifestPublicKeyFile)
-	if err != nil {
+	if err := verifyStage2gV2KeyBundle(*keysDir, *manifestPublicKeyFile, *expectedSignatureKeyID); err != nil {
 		return err
-	}
-	if _, err := verifyKeyBundle(*keysDir, prover.DefaultDestinationKeyVersion, publicKeyHex, strings.TrimSpace(*expectedSignatureKeyID), true); err != nil {
-		return fmt.Errorf("verify signed destination key bundle: %w", err)
 	}
 	destination, err := parseStage2gDestination(*destinationAddress, *destinationAddressBytes)
 	if err != nil {
@@ -143,6 +139,37 @@ func cmdGenerateStage2gV2Material(args []string) error {
 	return nil
 }
 
+func cmdVerifyStage2gV2KeyBundle(args []string) error {
+	fs := flag.NewFlagSet("verify-stage2g-v2-key-bundle", flag.ContinueOnError)
+	keysDir := fs.String("keys-dir", "", "signed destination proving-key bundle directory")
+	manifestPublicKeyFile := fs.String("manifest-public-key-file", "", "trusted external Ed25519 key-manifest public-key hex file")
+	expectedSignatureKeyID := fs.String("signature-key-id", "", "expected signed destination key-manifest signature key id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
+	}
+	if strings.TrimSpace(*keysDir) == "" {
+		return errors.New("--keys-dir is required")
+	}
+	if strings.TrimSpace(*manifestPublicKeyFile) == "" || strings.TrimSpace(*expectedSignatureKeyID) == "" {
+		return errors.New("--manifest-public-key-file and --signature-key-id are required")
+	}
+	return verifyStage2gV2KeyBundle(*keysDir, *manifestPublicKeyFile, *expectedSignatureKeyID)
+}
+
+func verifyStage2gV2KeyBundle(keysDir, manifestPublicKeyFile, expectedSignatureKeyID string) error {
+	publicKeyHex, err := stage2gTrustedManifestPublicKey(keysDir, manifestPublicKeyFile)
+	if err != nil {
+		return err
+	}
+	if _, err := verifyKeyBundle(keysDir, prover.DefaultDestinationKeyVersion, publicKeyHex, strings.TrimSpace(expectedSignatureKeyID), true); err != nil {
+		return fmt.Errorf("verify signed destination key bundle: %w", err)
+	}
+	return nil
+}
+
 // stage2gTrustedManifestPublicKey accepts only a separately supplied trust
 // anchor. In particular, the bundled manifest-public-key.hex cannot be
 // relabelled as an external key by passing its path explicitly.
@@ -154,13 +181,6 @@ func stage2gTrustedManifestPublicKey(keysDir, publicKeyFile string) (string, err
 	keyPath, err := filepath.Abs(configured)
 	if err != nil {
 		return "", errors.New("resolve trusted Stage 2g manifest public key path")
-	}
-	keyInfo, err := os.Lstat(keyPath)
-	if err != nil {
-		return "", errors.New("inspect trusted Stage 2g manifest public key file")
-	}
-	if keyInfo.Mode()&os.ModeSymlink != 0 || !keyInfo.Mode().IsRegular() {
-		return "", errors.New("trusted Stage 2g manifest public key must be a non-symlink regular file")
 	}
 	bundlePath, err := filepath.Abs(strings.TrimSpace(keysDir))
 	if err != nil {
@@ -179,7 +199,36 @@ func stage2gTrustedManifestPublicKey(keysDir, publicKeyFile string) (string, err
 		return "", errors.New("compare trusted Stage 2g manifest public key path")
 	}
 	if insideBundle {
-		return "", errors.New("trusted Stage 2g manifest public key must be outside --keys-dir")
+		return "", errors.New("--manifest-public-key-file must be outside --keys-dir")
+	}
+	keyInfo, err := os.Lstat(keyPath)
+	if err != nil {
+		return "", errors.New("inspect trusted Stage 2g manifest public key file")
+	}
+	if keyInfo.Mode()&os.ModeSymlink != 0 || !keyInfo.Mode().IsRegular() {
+		return "", errors.New("trusted Stage 2g manifest public key must be a non-symlink regular file")
+	}
+	hardLinkedIntoBundle := false
+	if err := filepath.WalkDir(resolvedBundlePath, func(bundleEntryPath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		entryInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if os.SameFile(keyInfo, entryInfo) {
+			hardLinkedIntoBundle = true
+		}
+		return nil
+	}); err != nil {
+		return "", errors.New("inspect Stage 2g key bundle files")
+	}
+	if hardLinkedIntoBundle {
+		return "", errors.New("--manifest-public-key-file must not be hard-linked into --keys-dir")
 	}
 	publicKeyHex, trusted, err := manifestPublicKeyForVerification(keysDir, "", resolvedKeyPath)
 	if err != nil {
