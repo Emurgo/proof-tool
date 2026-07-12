@@ -41,6 +41,23 @@ func TestValidateStage2gCardanoVKRequiresExactCommitmentLength(t *testing.T) {
 	}
 }
 
+func TestValidateStage2gCardanoProofRequiresExactCommitmentLength(t *testing.T) {
+	if prover.CardanoProofCommitmentLen != 336 {
+		t.Fatalf("Cardano commitment proof length = %d, want 336", prover.CardanoProofCommitmentLen)
+	}
+	for _, length := range []int{335, 337} {
+		if err := validateStage2gCardanoProofArtifact("groth16-bls12-381-bsb22", strings.Repeat("ab", length), strings.Repeat("cd", 32)); err == nil {
+			t.Fatalf("validateStage2gCardanoProofArtifact accepted %d-byte proof", length)
+		}
+	}
+	if err := validateStage2gCardanoProofArtifact("groth16-bls12-381-bsb22", strings.Repeat("ab", 336), strings.Repeat("cd", 32)); err != nil {
+		t.Fatalf("validateStage2gCardanoProofArtifact rejected exact 336-byte commitment proof: %v", err)
+	}
+	if err := validateStage2gCardanoProofArtifact("groth16-bls12-381", strings.Repeat("ab", 336), strings.Repeat("cd", 32)); err == nil {
+		t.Fatal("validateStage2gCardanoProofArtifact accepted vanilla proof format")
+	}
+}
+
 func TestReadStage2gCompromisedMasterDoesNotEchoMnemonic(t *testing.T) {
 	const mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 	path := filepath.Join(t.TempDir(), "wallets.json")

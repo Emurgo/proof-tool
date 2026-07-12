@@ -333,6 +333,13 @@ func validateStage2gCardanoVK(cardanoVK []byte, format string) error {
 	return nil
 }
 
+func validateStage2gCardanoProofArtifact(format, proofHex, publicInputDigestHex string) error {
+	if format != "groth16-bls12-381-bsb22" || len(proofHex) != prover.CardanoProofCommitmentLen*2 || len(publicInputDigestHex) != 64 {
+		return errors.New("Stage 2g proof serialization is not the exact 336-byte Cardano commitment wire format")
+	}
+	return nil
+}
+
 func generateStage2gEntry(ccs constraint.ConstraintSystem, bundle *prover.OwnershipBundle, master []byte, destinationAddress string, destination []byte, index int) (stage2gMaterialEntry, error) {
 	path := ownership.Path{Account: 0, Role: 0, Index: uint32(index)}
 	credential, err := ownership.DeriveCredential(master, path)
@@ -362,8 +369,8 @@ func generateStage2gEntry(ccs constraint.ConstraintSystem, bundle *prover.Owners
 	if err != nil {
 		return stage2gMaterialEntry{}, fmt.Errorf("serialize Stage 2g proof %d: %w", index, err)
 	}
-	if cardanoProof.Format != "groth16-bls12-381-bsb22" || len(cardanoProof.ProofHex) != prover.CardanoProofLen*2 || len(cardanoProof.PublicInputDigestHex) != 64 {
-		return stage2gMaterialEntry{}, errors.New("Stage 2g proof serialization is not the exact Cardano wire format")
+	if err := validateStage2gCardanoProofArtifact(cardanoProof.Format, cardanoProof.ProofHex, cardanoProof.PublicInputDigestHex); err != nil {
+		return stage2gMaterialEntry{}, err
 	}
 	return stage2gMaterialEntry{
 		TxHash:               stage2gSyntheticHash(fmt.Sprintf("base-utxo-%d", index)),
