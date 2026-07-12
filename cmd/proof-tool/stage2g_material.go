@@ -271,8 +271,8 @@ func buildStage2gMaterial(ccs constraint.ConstraintSystem, bundle *prover.Owners
 	if err != nil {
 		return stage2gMaterial{}, fmt.Errorf("serialize Stage 2g Cardano verification key: %w", err)
 	}
-	if format != "groth16-bls12-381-bsb22" || len(cardanoVK) != prover.CardanoVKLen {
-		return stage2gMaterial{}, errors.New("Stage 2g destination verification key is not the exact 672-byte Cardano format")
+	if err := validateStage2gCardanoVK(cardanoVK, format); err != nil {
+		return stage2gMaterial{}, err
 	}
 	vkHash, err := stage2gBlake2b256(cardanoVK)
 	if err != nil {
@@ -324,6 +324,13 @@ func buildStage2gMaterial(ccs constraint.ConstraintSystem, bundle *prover.Owners
 		},
 		Entries: entries,
 	}, nil
+}
+
+func validateStage2gCardanoVK(cardanoVK []byte, format string) error {
+	if format != "groth16-bls12-381-bsb22" || len(cardanoVK) != prover.CardanoVKCommitmentLen {
+		return errors.New("Stage 2g destination verification key is not the exact 672-byte Cardano commitment format")
+	}
+	return nil
 }
 
 func generateStage2gEntry(ccs constraint.ConstraintSystem, bundle *prover.OwnershipBundle, master []byte, destinationAddress string, destination []byte, index int) (stage2gMaterialEntry, error) {

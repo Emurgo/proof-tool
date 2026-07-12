@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"proof-tool/internal/prover"
 )
 
 func TestParseStage2gDestination(t *testing.T) {
@@ -19,6 +21,23 @@ func TestParseStage2gDestination(t *testing.T) {
 	}
 	if _, err := parseStage2gDestination("addr1mainnet", addressBytes); err == nil {
 		t.Fatal("mainnet destination unexpectedly accepted")
+	}
+}
+
+func TestValidateStage2gCardanoVKRequiresExactCommitmentLength(t *testing.T) {
+	if prover.CardanoVKCommitmentLen != 672 {
+		t.Fatalf("Cardano commitment VK length = %d, want 672", prover.CardanoVKCommitmentLen)
+	}
+	for _, length := range []int{671, 673} {
+		if err := validateStage2gCardanoVK(make([]byte, length), "groth16-bls12-381-bsb22"); err == nil {
+			t.Fatalf("validateStage2gCardanoVK accepted %d-byte VK", length)
+		}
+	}
+	if err := validateStage2gCardanoVK(make([]byte, 672), "groth16-bls12-381-bsb22"); err != nil {
+		t.Fatalf("validateStage2gCardanoVK rejected exact 672-byte commitment VK: %v", err)
+	}
+	if err := validateStage2gCardanoVK(make([]byte, 672), "groth16-bls12-381"); err == nil {
+		t.Fatal("validateStage2gCardanoVK accepted vanilla VK format")
 	}
 }
 
