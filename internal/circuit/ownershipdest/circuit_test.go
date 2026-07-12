@@ -8,6 +8,18 @@ import (
 	"proof-tool/internal/circuit/ownership"
 )
 
+func TestV2IdentityPreservesV1StatementDomain(t *testing.T) {
+	if CircuitID != "root-ownership-destination-v2/bls12-381/groth16" {
+		t.Fatalf("circuit id = %q", CircuitID)
+	}
+	if Domain != "ROOT-OWNERSHIP-DESTINATION-v1" {
+		t.Fatalf("domain = %q", Domain)
+	}
+	if PublicInputEncoding != "single-credential-destination-v1" {
+		t.Fatalf("public input encoding = %q", PublicInputEncoding)
+	}
+}
+
 func TestPublicInputDigestForCredentialDestination(t *testing.T) {
 	credential := mustDecodeHex(t, "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4")
 	destination := mustDecodeHex(t, "010038ff22c6562b1277ef0d3eb3b8b4892523eeba04d0ef0c9d7da1110000000000000000000000000000000000000000000000000000000000")

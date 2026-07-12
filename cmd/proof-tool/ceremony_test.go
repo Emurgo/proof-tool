@@ -103,8 +103,11 @@ func TestCeremonyProfileForKeyVersion(t *testing.T) {
 	if destinationProfile.CircuitID != ownershipdest.CircuitID {
 		t.Fatalf("destination circuit id = %q", destinationProfile.CircuitID)
 	}
+	if destinationProfile.KeyVersion != "ownership-destination-v2" {
+		t.Fatalf("destination key version = %q", destinationProfile.KeyVersion)
+	}
 
-	if _, err := ceremonyProfileForKeyVersion("ownership-destination-v2"); err == nil || !strings.Contains(err.Error(), "unsupported key version") {
-		t.Fatalf("unsupported key version err = %v", err)
+	if _, err := ceremonyProfileForKeyVersion("ownership-destination-v1"); err == nil || !strings.Contains(err.Error(), "unsupported key version") {
+		t.Fatalf("legacy key version err = %v", err)
 	}
 }
