@@ -3,50 +3,50 @@
     "A": {
       "name": "A",
       "offset": 461,
-      "len": 362814048,
+      "len": 225909504,
       "elem_size": 96
     },
     "B": {
       "name": "B",
-      "offset": 362814513,
-      "len": 243687072,
+      "offset": 225909969,
+      "len": 163189056,
       "elem_size": 96
     },
     "Basis": {
       "name": "Basis",
-      "offset": 1694249417,
-      "len": 192618048,
+      "offset": 1037543673,
+      "len": 125581728,
       "elem_size": 96
     },
     "BasisExpSigma": {
       "name": "BasisExpSigma",
-      "offset": 1886867469,
-      "len": 192618048,
+      "offset": 1163125405,
+      "len": 125581728,
       "elem_size": 96
     },
     "G2B": {
       "name": "G2B",
-      "offset": 1198909149,
-      "len": 487374144,
+      "offset": 706138557,
+      "len": 326378112,
       "elem_size": 192
     },
     "K": {
       "name": "K",
-      "offset": 1009154681,
-      "len": 189754080,
+      "offset": 590425529,
+      "len": 115712640,
       "elem_size": 96
     },
     "Z": {
       "name": "Z",
-      "offset": 606501589,
-      "len": 402653088,
+      "offset": 389099029,
+      "len": 201326496,
       "elem_size": 96
     }
   },
-  "domain_cardinality": 4194304,
-  "nb_wires": 3983046,
-  "nb_infinity_a": 203733,
-  "nb_infinity_b": 1444639,
+  "domain_cardinality": 2097152,
+  "nb_wires": 2513486,
+  "nb_infinity_a": 160262,
+  "nb_infinity_b": 813600,
   "nb_commitment_keys": 1,
-  "file_size": 2079485517
+  "file_size": 1288707133
 }

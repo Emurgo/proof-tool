@@ -99,14 +99,14 @@ describe("verify-reclaim-manifest V2 coherence", () => {
   });
 
   it("keeps non-V2 manifests with higher historical capacity valid", async () => {
-    const manifest = publicManifest();
+    const manifest = nonStatementBoundManifest();
     manifest.batching.hard_max_utxo_count = 35;
 
     await expect(verify(manifest)).resolves.toMatchObject({});
   });
 
   it("rejects explicit seven-slot opt-in metadata on a non-V2 profile", async () => {
-    const manifest = publicManifest();
+    const manifest = nonStatementBoundManifest();
     manifest.batching.distinct_7_opt_in = {
       request_parameter: "maxUtxos",
       request_value: 7,
@@ -122,6 +122,15 @@ describe("verify-reclaim-manifest V2 coherence", () => {
 
 function publicManifest() {
   return JSON.parse(readFileSync(publicManifestPath, "utf8"));
+}
+
+function nonStatementBoundManifest() {
+  const manifest = publicManifest();
+  manifest.reclaim_global.proof_slot_encoding =
+    "bytes-empty-same-as-previous-v1";
+  delete manifest.reclaim_global.batch_transcript_vk_hash;
+  delete manifest.batching.distinct_7_opt_in;
+  return manifest;
 }
 
 function statementBoundV2Manifest() {

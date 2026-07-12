@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const SCHEMA = "proof-tool-reclaim-deployment-v1";
-const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v1/bls12-381/groth16";
-const DESTINATION_KEY_VERSION = "ownership-destination-v1";
+const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v2/bls12-381/groth16";
+const DESTINATION_KEY_VERSION = "ownership-destination-v2";
 const DESTINATION_ADDRESS_ENCODING = "destination-address-v1";
 const SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING = "bytes-empty-same-as-previous-v1";
 const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";

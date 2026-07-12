@@ -422,7 +422,7 @@ function helperStatus() {
     protocol_version: "proof-helper-v1",
     destination_profile: {
       profile: "single-destination",
-      key_version: "ownership-destination-v1",
+      key_version: "ownership-destination-v2",
       key_hash: verifierVkHash,
       key_ready: true,
       compatibility: "ready",
@@ -483,7 +483,7 @@ function helperProofResponse(requests) {
       out_ref: request.out_ref,
       artifact: {
         schema: "root-ownership-proof-artifact-v1",
-        circuit_id: "root-ownership-destination-v1/bls12-381/groth16",
+        circuit_id: "root-ownership-destination-v2/bls12-381/groth16",
         vk_hash: verifierVkHash,
         target_credential: request.target_credential,
         destination_address_encoding: request.destination_address_encoding,

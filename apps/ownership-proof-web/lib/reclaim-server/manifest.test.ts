@@ -298,7 +298,7 @@ describe("reclaim deployment manifest validation", () => {
     }
     expect(result.capabilities).toMatchObject({
       proofProfile: "single-destination",
-      helperKeyVersion: "ownership-destination-v1",
+      helperKeyVersion: "ownership-destination-v2",
       destinationAddressEncoding: "destination-address-v1",
       indexerStatus: "not_configured",
       singleGlobalCompatible: true,
