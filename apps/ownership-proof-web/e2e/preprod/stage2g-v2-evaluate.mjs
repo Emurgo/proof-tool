@@ -120,12 +120,13 @@ export async function evaluateStage2gV2(options = {}) {
   });
   assertBuiltTransaction(built);
 
+  let evaluation;
   try {
     // This is intentionally the only execution-unit measurement in this file.
     const redeemers = await provider.evaluateTx(built.txCbor, built.additionalUtxos);
     const protocolParameters =
       options.protocolParameters ?? built.protocolParameters ?? (await provider.getProtocolParameters());
-    const evaluation = summarizeProviderEvaluation(redeemers, protocolParameters);
+    evaluation = summarizeProviderEvaluation(redeemers, protocolParameters);
     assertMeasuredV2Margin(evaluation, material.policy);
 
     const evidence = buildEvidence({
@@ -152,6 +153,7 @@ export async function evaluateStage2gV2(options = {}) {
       material,
       scripts,
       txCbor: built.txCbor,
+      evaluation,
       outcome: "rejected",
       failure,
     });

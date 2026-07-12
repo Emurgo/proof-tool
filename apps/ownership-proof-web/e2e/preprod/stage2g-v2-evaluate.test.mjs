@@ -140,6 +140,47 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
     expect(provider.evaluateTx).not.toHaveBeenCalled();
   });
 
+  it("records redacted measured units when the CPU ceiling rejects the benchmark", async () => {
+    const outputDir = tempDir();
+    const material = benchmarkMaterial();
+    const evidencePath = stageEvidencePath(outputDir);
+    const provider = fakeProvider();
+    provider.evaluateTx.mockResolvedValue(
+      Array.from({ length: 8 }, (_, index) => ({
+        redeemer_tag: index < 7 ? "spend" : "withdraw",
+        redeemer_index: index < 7 ? index : 0,
+        ex_units: { mem: 1_000, steps: 120_000 },
+      })),
+    );
+
+    await expect(
+      evaluateStage2gV2({
+        env: gates(),
+        repoRoot: outputDir,
+        materialPath: writeMaterial(outputDir, material),
+        evidencePath,
+        provider,
+        exporter: async () => scripts,
+        bootstrapBuilder: async () => ({
+          txCbor: "a100",
+          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({ txHash: `${index}`.repeat(64), outputIndex: 0 })),
+          attachment: "direct",
+        }),
+        protocolParameters,
+        log: () => undefined,
+      }),
+    ).rejects.toMatchObject({ code: "stage2g_cpu_margin_exceeded" });
+
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+    expect(evidence).toMatchObject({
+      outcome: "rejected",
+      evaluation: { totalSteps: "960000", cpuPercent: 96, totalMemory: "8000", memoryPercent: 8 },
+      failure: { code: "stage2g_cpu_margin_exceeded" },
+    });
+    expect(JSON.stringify(evidence)).not.toContain(material.entries[0].proof_hex);
+    expect(JSON.stringify(evidence)).not.toContain(material.entries[0].credential);
+  });
+
   it("surfaces synthetic reward-account rejection without trying to change stake state", async () => {
     const outputDir = tempDir();
     const material = benchmarkMaterial();
