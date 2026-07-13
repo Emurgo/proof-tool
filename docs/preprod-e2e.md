@@ -167,7 +167,7 @@ pnpm --dir apps/ownership-proof-web e2e:preprod:stage2g:v2:compare
 The comparison builds complete unsigned direct-script transactions for both
 profiles and reports redacted script identities/sizes, transaction-byte counts,
 per-redeemer provider units, totals, deltas, and headroom. It cannot sign or
-submit and is still not Gate G2.
+submit and, by itself, is not on-chain acceptance evidence.
 
 The evaluator must report all safety fields false for signing, submission,
 funding, minting, stake registration, and deployment. Passing requires total
@@ -175,8 +175,8 @@ CPU at or below 90% and memory at or below 80%. The release-facing redacted
 record belongs under `contracts/ownership-verifier/bench/results/`; the raw
 local material and provider response remain ignored.
 
-This provider result is not Gate G2 and must not be described as an accepted
-claim. After deployment, G2 requires a real all-distinct-7 transaction:
+Under the original gate contract, this provider result was not Gate G2 and could
+not be described as an accepted claim. The originally requested closeout was:
 
 1. Fund seven ReclaimBase UTxOs whose pairwise-distinct payment credentials
    are derived from the same test root private key.
@@ -294,7 +294,10 @@ retained. The V2 prefix was re-listed afterward and still contained the full
 1,288,707,133-byte PK, all 77 chunks, and the 129,221,468-byte CCS.
 
 This establishes the requested live optimized-V2 prove/build/submit/on-chain
-path and the post-success R2 rotation. It does not replace the separate Gate G2
-requirement above for an accepted all-distinct-seven on-chain claim: that exact
-live transaction remains a distinct release-evidence item even though its
-Stage 2g evaluator lane passed.
+path and the post-success R2 rotation. On 2026-07-13 the operator reviewed the
+remaining distinction and accepted G2 by exception using the passing
+all-distinct-seven Stage 2g evaluation plus the confirmed six-input and
+four-input live V2 claims. The exact accepted all-distinct-seven transaction was
+not run and is explicitly waived, not represented as existing evidence. The
+paired G2/G3 disposition is recorded in
+contracts/ownership-verifier/bench/results/g2-g3-operator-acceptance-2026-07-13.md.
