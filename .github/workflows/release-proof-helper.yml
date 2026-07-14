@@ -26,6 +26,11 @@ env:
   PROOF_HELPER_TAURI_DIR: apps/proof-helper-desktop/src-tauri
   WINDOWS_TARGET: x86_64-pc-windows-msvc
   WINDOWS_SIDECAR: proof-tool-x86_64-pc-windows-msvc.exe
+  # Production origin the desktop helper pairs and opens by default.
+  PROOF_HELPER_SITE_URL: https://proof-tool.vercel.app
+  # Extra origins the helper accepts beyond the site URL (comma-separated;
+  # a single '*' matches one host label). Covers Vercel branch previews.
+  PROOF_HELPER_ALLOWED_ORIGINS: https://proof-tool-git-*.vercel.app
 
 jobs:
   checks:
@@ -157,6 +162,12 @@ jobs:
 
       - name: Build Tauri Windows bundle
         working-directory: apps/proof-helper-desktop
+        env:
+          # Bake the production site origin into the shipped bundle so the
+          # helper pairs the live site instead of a dead local dev address.
+          VITE_PROOF_SITE_URL: ${{ env.PROOF_HELPER_SITE_URL }}
+          # Also let the helper accept Vercel branch-preview origins.
+          VITE_PROOF_HELPER_ALLOWED_ORIGINS: ${{ env.PROOF_HELPER_ALLOWED_ORIGINS }}
         run: pnpm tauri build --target x86_64-pc-windows-msvc
 
       - name: Stage Windows release artifacts

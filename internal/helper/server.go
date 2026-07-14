@@ -22,8 +22,20 @@ type Server struct {
 	Generator      Generator
 	Token          string
 	AllowedOrigins map[string]struct{}
+	originPatterns []originPattern
 	Shutdown       func()
 	shutdownCalled atomic.Bool
+}
+
+// originPattern matches a browser origin whose host contains a single "*"
+// wildcard standing for exactly one DNS label (no dots). It lets the helper
+// accept a family of deploy-preview origins (e.g. Vercel branch previews)
+// without allowing arbitrary subdomain traversal.
+type originPattern struct {
+	scheme     string
+	hostPrefix string
+	hostSuffix string
+	port       string
 }
 
 type ErrorResponse struct {
@@ -61,13 +73,56 @@ type ProfileStatus struct {
 
 func NewServer(generator Generator, token string, allowedOrigins []string) *Server {
 	origins := make(map[string]struct{}, len(allowedOrigins))
+	var patterns []originPattern
 	for _, origin := range allowedOrigins {
 		origin = strings.TrimSpace(origin)
-		if origin != "" {
-			origins[origin] = struct{}{}
+		if origin == "" {
+			continue
 		}
+		if strings.Contains(origin, "*") {
+			if pattern, ok := compileOriginPattern(origin); ok {
+				patterns = append(patterns, pattern)
+			}
+			continue
+		}
+		origins[origin] = struct{}{}
 	}
-	return &Server{Generator: generator, Token: token, AllowedOrigins: origins}
+	return &Server{Generator: generator, Token: token, AllowedOrigins: origins, originPatterns: patterns}
+}
+
+// compileOriginPattern parses an origin like "https://app-*.example.com" into a
+// matcher. It accepts exactly one "*" in the host, requires an http/https
+// scheme, and rejects any path/query/fragment. Invalid patterns are dropped
+// (ok=false) so a misconfigured entry can never widen the allow-list.
+func compileOriginPattern(raw string) (originPattern, bool) {
+	idx := strings.Index(raw, "://")
+	if idx <= 0 {
+		return originPattern{}, false
+	}
+	scheme := raw[:idx]
+	if scheme != "http" && scheme != "https" {
+		return originPattern{}, false
+	}
+	rest := raw[idx+3:]
+	if rest == "" || strings.ContainsAny(rest, "/?#") {
+		return originPattern{}, false
+	}
+	host := rest
+	port := ""
+	if colon := strings.LastIndex(rest, ":"); colon >= 0 {
+		host = rest[:colon]
+		port = rest[colon+1:]
+	}
+	if strings.Count(host, "*") != 1 {
+		return originPattern{}, false
+	}
+	star := strings.IndexByte(host, '*')
+	return originPattern{
+		scheme:     scheme,
+		hostPrefix: host[:star],
+		hostSuffix: host[star+1:],
+		port:       port,
+	}, true
 }
 
 func (s *Server) Handler() http.Handler {
@@ -253,11 +308,44 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) originAllowed(origin string) bool {
-	_, ok := s.AllowedOrigins[origin]
-	if ok {
+	if _, ok := s.AllowedOrigins[origin]; ok {
+		return true
+	}
+	if s.patternOriginAllowed(origin) {
 		return true
 	}
 	return s.loopbackDevOriginAllowed(origin)
+}
+
+func (s *Server) patternOriginAllowed(origin string) bool {
+	if len(s.originPatterns) == 0 {
+		return false
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	port := parsed.Port()
+	for _, pattern := range s.originPatterns {
+		if pattern.scheme != parsed.Scheme || pattern.port != port {
+			continue
+		}
+		if len(host) <= len(pattern.hostPrefix)+len(pattern.hostSuffix) {
+			continue
+		}
+		if !strings.HasPrefix(host, pattern.hostPrefix) || !strings.HasSuffix(host, pattern.hostSuffix) {
+			continue
+		}
+		wildcard := host[len(pattern.hostPrefix) : len(host)-len(pattern.hostSuffix)]
+		// The wildcard stands for exactly one DNS label: non-empty and no dot,
+		// so "app-*.example.com" can never match "app-x.evil.example.com".
+		if wildcard == "" || strings.Contains(wildcard, ".") {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (s *Server) loopbackDevOriginAllowed(origin string) bool {
@@ -314,12 +402,23 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 }
 
 func (s *Server) allowedOrigins() []string {
-	origins := make([]string, 0, len(s.AllowedOrigins))
+	origins := make([]string, 0, len(s.AllowedOrigins)+len(s.originPatterns))
 	for origin := range s.AllowedOrigins {
 		origins = append(origins, origin)
 	}
+	for _, pattern := range s.originPatterns {
+		origins = append(origins, pattern.String())
+	}
 	sort.Strings(origins)
 	return origins
+}
+
+func (p originPattern) String() string {
+	host := p.hostPrefix + "*" + p.hostSuffix
+	if p.port != "" {
+		host += ":" + p.port
+	}
+	return p.scheme + "://" + host
 }
 
 func compatibilityForKey(key KeyStatus) string {

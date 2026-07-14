@@ -32,6 +32,10 @@ type BusyState = "status" | "start" | "stop" | "install" | "delete" | null;
 type Tone = "ok" | "warn" | "bad" | "idle";
 
 const defaultSiteURL = import.meta.env.VITE_PROOF_SITE_URL ?? "http://127.0.0.1:3002";
+// Extra browser origins (beyond the site URL) the local helper should accept,
+// e.g. Vercel branch-preview deployments. Baked at build time via
+// VITE_PROOF_HELPER_ALLOWED_ORIGINS as a comma-separated list.
+const defaultAllowedOrigins = parseOriginList(import.meta.env.VITE_PROOF_HELPER_ALLOWED_ORIGINS);
 const defaultSidecarPath = import.meta.env.VITE_PROOF_HELPER_SIDECAR_PATH ?? "";
 const defaultFixtureMode = import.meta.env.VITE_PROOF_HELPER_FIXTURE === "1";
 const defaultDevCreateKeys = import.meta.env.VITE_PROOF_HELPER_DEV_CREATE_KEYS === "1";
@@ -168,6 +172,7 @@ export function App({ api = tauriDesktopApi, showDeveloperControls = defaultShow
     try {
       const next = await api.startHelper({
         siteUrl,
+        allowedOrigins: defaultAllowedOrigins,
         sidecarPath: sidecarPath.trim() || undefined,
         fixture,
         devCreateKeys,
@@ -978,6 +983,20 @@ function platformName(os: string) {
     default:
       return os || "Unknown";
   }
+}
+
+function parseOriginList(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  const seen: string[] = [];
+  for (const part of value.split(",")) {
+    const trimmed = part.trim();
+    if (trimmed && !seen.includes(trimmed)) {
+      seen.push(trimmed);
+    }
+  }
+  return seen;
 }
 
 function messageFor(error: unknown) {

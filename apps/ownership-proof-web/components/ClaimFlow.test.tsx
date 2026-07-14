@@ -3,6 +3,7 @@ import { bech32 } from "bech32";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaimFlow, selectClaimBatchRows } from "./ClaimFlow";
+import { broadcastPairing, subscribeToPairing } from "../lib/proving/helper-pairing-relay";
 
 const credential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const usedCredential = "22222222222222222222222222222222222222222222222222222222";
@@ -805,6 +806,37 @@ describe("ClaimFlow", () => {
     });
     expect(screen.getByRole("button", { name: "Generate proofs" })).toBeDisabled();
     expect(fetch.mock.calls.some(([url]) => String(url) === "http://127.0.0.1:49152/status")).toBe(true);
+  });
+
+  it("pairs the local helper in place from a courier tab relay without reloading", async () => {
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const fetch = claimFlowFetch();
+    vi.stubGlobal("fetch", fetch);
+
+    // This tab is the working tab: it advances to Create proofs without any
+    // pairing fragment, so the helper starts unpaired.
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+    await connectSafeWalletToProofs();
+    expect(fetch.mock.calls.some(([url]) => String(url) === "http://127.0.0.1:49152/status")).toBe(false);
+
+    // A courier tab (opened by the desktop app) relays the pairing over the
+    // same-origin channel and listens for an acknowledgement.
+    const courier = "courier-under-test";
+    const acks: string[] = [];
+    const unsubscribe = subscribeToPairing({ sender: courier, onAck: (target) => acks.push(target) });
+    broadcastPairing({ helperUrl: "http://127.0.0.1:49152", token: "pair-secret" }, courier);
+
+    // The working tab pairs in place: it queries the relayed helper and
+    // acknowledges the courier — all without a navigation or fragment.
+    await waitFor(() =>
+      expect(fetch.mock.calls.some(([url]) => String(url) === "http://127.0.0.1:49152/status")).toBe(true),
+    );
+    await waitFor(() => expect(acks).toContain(courier));
+    expect(window.location.hash).toBe("");
+    unsubscribe();
   });
 
   it("renders non-fixture proof readiness from the draft without demo proof progress or placeholder addresses", async () => {
