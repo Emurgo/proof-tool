@@ -2,7 +2,7 @@
 // (proof-destination.wasm) for browser proving.
 //
 // The page (lib/proving/browser-wasm.ts) speaks this protocol:
-//   in : { id, type:'init', wasmUrl, wasmExecUrl, gogc, gomemlimit }
+//   in : { id, type:'init', wasmUrl, wasmExecUrl, msmWorkerWasmUrl, gogc, gomemlimit }
 //   out: { id, type:'ready' } | { id, type:'error', message }
 //
 //   in : { id, type:'preflight', requestJson }
@@ -26,6 +26,7 @@
 'use strict';
 
 let initPromise = null;
+let compiledMSMWorkerModule = null;
 
 function errorMessage(err) {
   return String(err && err.message ? err.message : err);
@@ -37,7 +38,30 @@ function normalizeResult(result) {
   return typeof result === 'string' ? JSON.parse(result) : result;
 }
 
+async function compileMSMWorkerModule(url) {
+  if (!url) return null;
+  if (typeof WebAssembly.compileStreaming === 'function') {
+    return await WebAssembly.compileStreaming(fetch(url));
+  }
+  return await WebAssembly.compile(await (await fetch(url)).arrayBuffer());
+}
+
+function installMSMWorkerInitializer(wasmURL) {
+  self.__initializeMSMWorker = (worker) => {
+    const init = { type: 'init', wasmURL };
+    if (compiledMSMWorkerModule) init.compiledModule = compiledMSMWorkerModule;
+    try {
+      worker.postMessage(init);
+    } catch {
+      // Older engines may not clone WebAssembly.Module. They compile once per
+      // nested worker but preserve the same pinned URL and verification path.
+      worker.postMessage({ type: 'init', wasmURL });
+    }
+  };
+}
+
 async function initRuntime(msg) {
+  const msmCompile = compileMSMWorkerModule(msg.msmWorkerWasmUrl).catch(() => null);
   importScripts(msg.wasmExecUrl);
   const go = new self.Go();
   go.env.GOGC = msg.gogc ? String(msg.gogc) : '50';
@@ -58,6 +82,8 @@ async function initRuntime(msg) {
   while (!self.__wasmProverReady) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+  compiledMSMWorkerModule = await msmCompile;
+  installMSMWorkerInitializer(msg.msmWorkerWasmUrl);
 }
 
 self.onmessage = async (event) => {
