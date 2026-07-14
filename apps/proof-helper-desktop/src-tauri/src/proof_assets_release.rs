@@ -27,6 +27,11 @@ use url::Url;
 const PROOF_ASSET_INSTALL_PROGRESS_EVENT: &str = "proof-asset-install-progress";
 const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const MINIMUM_FREE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+// Progress events cross the Rust->webview IPC bridge and each one re-renders
+// the UI, so emit at most one per this many archive bytes (~175 events for
+// the full archive) instead of one per 64 KiB read (~40k events, enough
+// overhead to gate the download itself).
+const PROGRESS_EMIT_STRIDE: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct ProofAssetsReleaseDescriptor {
@@ -463,8 +468,17 @@ where
     let mut out =
         File::create(output_path).map_err(|err| format!("create staged {file_name}: {err}"))?;
     let total_bytes = entry.header().size().unwrap_or(0);
-    let mut copied_bytes = 0_u64;
     let mut buf = [0_u8; 64 * 1024];
+    // One event per file: byte-level progress comes from the DigestingReader
+    // wrapping the archive stream, which covers these same bytes.
+    progress.emit(ProofAssetInstallProgress {
+        release_tag: descriptor.release_tag.clone(),
+        phase: ProofAssetInstallPhase::Extracting,
+        file_name: Some(file_name.to_string()),
+        copied_bytes: 0,
+        total_bytes,
+        message: format!("Extracting {file_name}."),
+    })?;
     loop {
         if cancelled() {
             return Err("proof assets install cancelled".to_string());
@@ -477,15 +491,6 @@ where
         }
         out.write_all(&buf[..read])
             .map_err(|err| format!("write staged {file_name}: {err}"))?;
-        copied_bytes += read as u64;
-        progress.emit(ProofAssetInstallProgress {
-            release_tag: descriptor.release_tag.clone(),
-            phase: ProofAssetInstallPhase::Extracting,
-            file_name: Some(file_name.to_string()),
-            copied_bytes,
-            total_bytes,
-            message: "Extracting proof asset files.".to_string(),
-        })?;
     }
     out.flush()
         .map_err(|err| format!("flush staged {file_name}: {err}"))
@@ -687,6 +692,7 @@ where
     sha: Sha256,
     blake: Blake2bVar,
     read_bytes: u64,
+    last_emitted_bytes: u64,
     progress: &'a ProgressSink<'a, F>,
     cancelled: &'a C,
 }
@@ -709,6 +715,7 @@ where
             sha: Sha256::new(),
             blake: Blake2bVar::new(32).map_err(|err| format!("create blake2b digest: {err}"))?,
             read_bytes: 0,
+            last_emitted_bytes: 0,
             progress,
             cancelled,
         })
@@ -747,16 +754,23 @@ where
         ShaDigest::update(&mut self.sha, &buf[..read]);
         BlakeUpdate::update(&mut self.blake, &buf[..read]);
         self.read_bytes += read as u64;
-        self.progress
-            .emit(ProofAssetInstallProgress {
-                release_tag: self.descriptor.release_tag.clone(),
-                phase: ProofAssetInstallPhase::Downloading,
-                file_name: None,
-                copied_bytes: self.read_bytes,
-                total_bytes: self.descriptor.archive_size,
-                message: "Downloading proof assets.".to_string(),
-            })
-            .map_err(io::Error::other)?;
+        // Throttled: extraction streams while downloading, so this stream is
+        // the overall install progress and would otherwise fire per read.
+        if self.read_bytes - self.last_emitted_bytes >= PROGRESS_EMIT_STRIDE
+            || self.read_bytes == self.descriptor.archive_size
+        {
+            self.last_emitted_bytes = self.read_bytes;
+            self.progress
+                .emit(ProofAssetInstallProgress {
+                    release_tag: self.descriptor.release_tag.clone(),
+                    phase: ProofAssetInstallPhase::Downloading,
+                    file_name: None,
+                    copied_bytes: self.read_bytes,
+                    total_bytes: self.descriptor.archive_size,
+                    message: "Downloading proof assets.".to_string(),
+                })
+                .map_err(io::Error::other)?;
+        }
         Ok(read)
     }
 }
