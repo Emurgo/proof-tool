@@ -19,6 +19,7 @@ export type KeyBundleStatus = {
 
 export type StartHelperRequest = {
   siteUrl: string;
+  allowedOrigins?: string[];
   sidecarPath?: string;
   keysDir?: string;
   fixture?: boolean;

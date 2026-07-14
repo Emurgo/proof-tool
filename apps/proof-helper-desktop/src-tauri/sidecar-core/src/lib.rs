@@ -10,6 +10,11 @@ const DEFAULT_HELPER_ADDR: &str = "127.0.0.1:0";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServeHelperLaunch {
     pub site_url: String,
+    /// Extra browser origins allowed to drive the helper in addition to the
+    /// `site_url` origin. Entries may be exact origins or a single-`*` host
+    /// wildcard (e.g. `https://app-git-*.vercel.app`); the Go helper validates
+    /// and ignores malformed entries.
+    pub allowed_origins: Vec<String>,
     pub keys_dir: PathBuf,
     pub destination_keys_dir: PathBuf,
     pub fixture: bool,
@@ -112,6 +117,11 @@ pub fn serve_helper_args(launch: &ServeHelperLaunch) -> Result<Vec<String>, Side
         site_url,
         "--no-open".to_string(),
     ];
+    let allowed_origins = normalize_allowed_origins(&launch.allowed_origins);
+    if !allowed_origins.is_empty() {
+        args.push("--allowed-origins".to_string());
+        args.push(allowed_origins.join(","));
+    }
     if launch.fixture {
         args.push("--fixture".to_string());
     }
@@ -199,6 +209,21 @@ pub fn target_triple_suffix(os: &str, arch: &str) -> Option<&'static str> {
     }
 }
 
+/// Trim, drop empties, and de-duplicate extra allowed origins while preserving
+/// order. Content validation (scheme, wildcard shape) is left to the Go helper,
+/// which fails closed on malformed entries.
+fn normalize_allowed_origins(values: &[String]) -> Vec<String> {
+    let mut seen = Vec::new();
+    for value in values {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || seen.iter().any(|existing| existing == trimmed) {
+            continue;
+        }
+        seen.push(trimmed.to_string());
+    }
+    seen
+}
+
 fn normalize_site_url(value: &str) -> Result<String, SidecarCoreError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -238,6 +263,7 @@ mod tests {
     fn serve_helper_args_include_loopback_no_open_and_optional_flags() {
         let args = serve_helper_args(&ServeHelperLaunch {
             site_url: " http://127.0.0.1:3000 ".to_string(),
+            allowed_origins: Vec::new(),
             keys_dir: PathBuf::from("/tmp/proof-helper/keys"),
             destination_keys_dir: PathBuf::from("/tmp/proof-helper/destination-keys"),
             fixture: true,
@@ -265,9 +291,50 @@ mod tests {
     }
 
     #[test]
+    fn serve_helper_args_pass_deduped_allowed_origins() {
+        let args = serve_helper_args(&ServeHelperLaunch {
+            site_url: "https://proof-tool.vercel.app".to_string(),
+            allowed_origins: vec![
+                "  https://proof-tool-git-*.vercel.app  ".to_string(),
+                String::new(),
+                "https://proof-tool-git-*.vercel.app".to_string(),
+                "https://staging.example".to_string(),
+            ],
+            keys_dir: PathBuf::from("/tmp/keys"),
+            destination_keys_dir: PathBuf::from("/tmp/destination-keys"),
+            fixture: false,
+            dev_create_keys: false,
+        })
+        .expect("build args");
+
+        let flag = args.iter().position(|arg| arg == "--allowed-origins");
+        let index = flag.expect("allowed-origins flag present");
+        assert_eq!(
+            args[index + 1],
+            "https://proof-tool-git-*.vercel.app,https://staging.example"
+        );
+    }
+
+    #[test]
+    fn serve_helper_args_omit_allowed_origins_when_empty() {
+        let args = serve_helper_args(&ServeHelperLaunch {
+            site_url: "https://proof-tool.vercel.app".to_string(),
+            allowed_origins: vec!["   ".to_string()],
+            keys_dir: PathBuf::from("/tmp/keys"),
+            destination_keys_dir: PathBuf::from("/tmp/destination-keys"),
+            fixture: false,
+            dev_create_keys: false,
+        })
+        .expect("build args");
+
+        assert!(!args.iter().any(|arg| arg == "--allowed-origins"));
+    }
+
+    #[test]
     fn serve_helper_args_reject_non_http_site_url() {
         let err = serve_helper_args(&ServeHelperLaunch {
             site_url: "file:///tmp/site.html".to_string(),
+            allowed_origins: Vec::new(),
             keys_dir: PathBuf::from("/tmp/keys"),
             destination_keys_dir: PathBuf::from("/tmp/destination-keys"),
             fixture: false,

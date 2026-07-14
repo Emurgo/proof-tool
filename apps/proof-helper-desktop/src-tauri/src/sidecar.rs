@@ -23,6 +23,8 @@ pub struct SidecarState {
 #[serde(rename_all = "camelCase")]
 pub struct StartHelperRequest {
     pub site_url: String,
+    #[serde(default)]
+    pub allowed_origins: Option<Vec<String>>,
     pub sidecar_path: Option<String>,
     pub keys_dir: Option<String>,
     pub fixture: Option<bool>,
@@ -68,6 +70,7 @@ pub fn start_helper<R: Runtime>(
 
     let args = sidecar_core::serve_helper_args(&ServeHelperLaunch {
         site_url: request.site_url,
+        allowed_origins: request.allowed_origins.unwrap_or_default(),
         keys_dir,
         destination_keys_dir,
         fixture: request.fixture.unwrap_or(false),

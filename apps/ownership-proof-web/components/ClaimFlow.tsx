@@ -57,6 +57,12 @@ import type { AssetMap, BrowserProvingDescriptor, DeploymentResponse, ReclaimApi
 import { LOVELACE_UNIT } from "../lib/reclaim/types";
 import { ProvingCancelledError, checkBrowserProving, proveDestinationInBrowser } from "../lib/proving/browser-wasm";
 import { proveDestinationViaHelper } from "../lib/proving/desktop-helper";
+import {
+  acknowledgePairing,
+  broadcastPairing,
+  createRelayId,
+  subscribeToPairing,
+} from "../lib/proving/helper-pairing-relay";
 import type {
   BrowserProvingStatus,
   DestinationProofResponse,
@@ -549,6 +555,9 @@ const INCIDENT_NAME = "SecondFi";
 const claimFlowResumeStorageKey = "proof-tool.claim-flow.resume.v1";
 const claimFlowResumeMaxAgeMs = 2 * 60 * 60 * 1000;
 const clipboardReadTimeoutMs = 2_500;
+// How long a courier tab waits for an existing tab to acknowledge the relayed
+// pairing before assuming it is the only tab and pairing itself.
+const courierAckTimeoutMs = 600;
 
 const defaultCreateWorker = () =>
   new Worker(new URL("../workers/ownership-proof-worker.ts", import.meta.url), {
@@ -599,6 +608,14 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const [helperState, setHelperState] = useState<ClaimHelperState>("unpaired");
   const [helperStatus, setHelperStatus] = useState<ClaimHelperStatusResponse | null>(null);
   const [helperError, setHelperError] = useState("");
+  // Courier relay (C-pairing): "relaying" while this tab, opened by the desktop
+  // app with a pairing fragment, waits for an existing tab to take the pairing;
+  // "relayed" once one acknowledges. "idle" means this tab runs the flow itself.
+  const [courierStatus, setCourierStatus] = useState<"idle" | "relaying" | "relayed">("idle");
+  const relaySenderIdRef = useRef<string>("");
+  if (relaySenderIdRef.current === "") {
+    relaySenderIdRef.current = createRelayId();
+  }
   const [proofArtifacts, setProofArtifacts] = useState<Record<string, unknown>[]>([]);
   const [proofError, setProofError] = useState("");
   // C28: set when the entered phrase is wordlist-valid but fails the BIP-39
@@ -743,6 +760,24 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     }
   }, [fixtureEnabled]);
 
+  // Apply a pairing in this tab (courier fallback, or when this is the only
+  // tab). Restores any stored snapshot first so a fresh courier tab is usable.
+  const pairInThisTab = useCallback(
+    (pairing: { helperUrl: string; token: string }) => {
+      const snapshot = readClaimFlowResumeSnapshot();
+      if (snapshot) {
+        restoreResumeSnapshot(snapshot);
+      }
+      setHelperUrl(pairing.helperUrl);
+      setHelperToken(pairing.token);
+      setHelperError("");
+    },
+    [restoreResumeSnapshot],
+  );
+
+  // Courier pairing (C-pairing): this tab was opened by the desktop app with a
+  // `#helper=…&pair=…` fragment. Relay it to an existing tab that may be
+  // mid-flow so it can pair in place; if none acknowledges, pair here.
   useEffect(() => {
     if (fixtureEnabled) {
       return;
@@ -751,20 +786,68 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     if (!pairing) {
       return;
     }
+    // Strip the pairing secret from the URL immediately, regardless of outcome.
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     if ("error" in pairing) {
       setHelperState("unavailable");
       setHelperError(pairing.error);
-    } else {
-      const snapshot = readClaimFlowResumeSnapshot();
-      if (snapshot) {
-        restoreResumeSnapshot(snapshot);
-      }
-      setHelperUrl(pairing.helperUrl);
-      setHelperToken(pairing.token);
-      setHelperError("");
+      return;
     }
-    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-  }, [fixtureEnabled, restoreResumeSnapshot]);
+
+    const sender = relaySenderIdRef.current;
+    let settled = false;
+    setCourierStatus("relaying");
+    const unsubscribe = subscribeToPairing({
+      sender,
+      onAck: (target) => {
+        if (settled || target !== sender) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timer);
+        setCourierStatus("relayed");
+      },
+    });
+    broadcastPairing(pairing, sender);
+    const timer = window.setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      // No existing tab took the pairing: become the working tab.
+      setCourierStatus("idle");
+      pairInThisTab(pairing);
+    }, courierAckTimeoutMs);
+
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [fixtureEnabled, pairInThisTab]);
+
+  // Working tab: apply a pairing relayed from a courier tab in place, keeping
+  // this tab's in-memory progress, and acknowledge so the courier can close.
+  useEffect(() => {
+    if (fixtureEnabled) {
+      return;
+    }
+    const sender = relaySenderIdRef.current;
+    return subscribeToPairing({
+      sender,
+      onPair: ({ helperUrl: relayedUrl, token, sender: courier }) => {
+        let normalized: string;
+        try {
+          normalized = normalizeLoopbackHelperUrl(relayedUrl);
+        } catch {
+          return;
+        }
+        setHelperUrl(normalized);
+        setHelperToken(token);
+        setHelperError("");
+        acknowledgePairing(courier, sender);
+      },
+    });
+  }, [fixtureEnabled]);
 
   useEffect(() => {
     if (fixtureEnabled) {
@@ -1877,6 +1960,10 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     }
   };
 
+  if (!fixtureEnabled && (courierStatus === "relaying" || courierStatus === "relayed")) {
+    return <HelperPairingCourier status={courierStatus} />;
+  }
+
   return (
     <main className="claim-shell" data-claim-state={screen}>
       <ClaimSidebar activeStep={activeStep} screen={screen} />
@@ -2423,6 +2510,39 @@ function ClaimTopNav() {
         </a>
       </div>
     </header>
+  );
+}
+
+// Standalone view for the courier tab the desktop app opens to carry a pairing
+// fragment. It relays the pairing to an existing tab rather than running a
+// duplicate flow here.
+function HelperPairingCourier({ status }: { status: "relaying" | "relayed" }) {
+  const relayed = status === "relayed";
+  return (
+    <main className="claim-shell" data-claim-state="helper-courier">
+      <section className="claim-workspace">
+        <ClaimTopNav />
+        <div className="claim-page">
+          <div className="claim-notice info" role="status" data-testid="helper-courier">
+            <span className="claim-icon-circle">
+              {relayed ? (
+                <CheckCircle2 size={28} aria-hidden="true" />
+              ) : (
+                <RefreshCw size={28} className="spin" aria-hidden="true" />
+              )}
+            </span>
+            <div>
+              <strong>{relayed ? "Proof Helper paired" : "Connecting Proof Helper…"}</strong>
+              <p>
+                {relayed
+                  ? "Your claim is paired in the tab you already had open. You can close this tab and continue there."
+                  : "Handing the Proof Helper connection to your open claim tab. This only takes a moment."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 

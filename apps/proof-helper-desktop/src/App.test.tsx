@@ -184,6 +184,7 @@ describe("Proof Helper desktop app", () => {
     await waitFor(() => expect(api.startHelper).toHaveBeenCalledOnce());
     expect(api.startHelper).toHaveBeenCalledWith({
       siteUrl: "http://127.0.0.1:3002",
+      allowedOrigins: [],
       sidecarPath: undefined,
       fixture: false,
       devCreateKeys: false,

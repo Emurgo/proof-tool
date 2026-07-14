@@ -1058,6 +1058,7 @@ func cmdServeHelper(args []string) error {
 	keysDir := fs.String("keys-dir", prover.DefaultKeyDir(), "local proving/verifying key bundle directory")
 	destinationKeysDir := fs.String("destination-keys-dir", prover.DefaultDestinationKeyDir(), "local destination proving/verifying key bundle directory")
 	siteURL := fs.String("site-url", "", "website URL to open with an automatic pairing fragment")
+	allowedOriginsFlag := fs.String("allowed-origins", "", "comma-separated additional browser origins allowed to use the helper (exact origins, or a single '*' host-label wildcard such as https://app-git-*.vercel.app); the --site-url origin is always allowed")
 	devCreateKeys := fs.Bool("dev-create-keys", false, "development only: create the key bundle if it is missing")
 	fixtureMode := fs.Bool("fixture", false, "development only: return fixture artifacts for UI/control-flow testing")
 	noOpen := fs.Bool("no-open", false, "do not open the paired website automatically")
@@ -1088,7 +1089,7 @@ func cmdServeHelper(args []string) error {
 	if err != nil {
 		return err
 	}
-	origins := []string{siteOrigin}
+	origins := append([]string{siteOrigin}, splitCSV(*allowedOriginsFlag)...)
 	companion := helper.NewServer(generator, token, origins)
 	server := &http.Server{
 		Handler:           companion.Handler(),

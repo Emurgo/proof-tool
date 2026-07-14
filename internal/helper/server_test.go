@@ -203,6 +203,68 @@ func TestHelperAcceptsSiblingLoopbackDevOriginWithToken(t *testing.T) {
 	}
 }
 
+func TestHelperAcceptsWildcardPreviewOrigin(t *testing.T) {
+	fake := &fakeGenerator{artifact: validArtifact()}
+	server := NewServer(fake, testToken, []string{"https://proof-tool.example.app", "https://proof-tool-git-*.example.app"})
+	rr := postProve(t, server, validProveRequest(), "https://proof-tool-git-main-team.example.app", testToken)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	if !fake.called {
+		t.Fatal("generator was not called for allowed preview origin")
+	}
+}
+
+func TestHelperWildcardOriginDoesNotSpanLabels(t *testing.T) {
+	cases := []struct {
+		name   string
+		origin string
+	}{
+		{"extra label in wildcard", "https://proof-tool-git-main.attacker.example.app"},
+		{"empty wildcard", "https://proof-tool-git-.example.app"},
+		{"scheme mismatch", "http://proof-tool-git-main.example.app"},
+		{"suffix mismatch", "https://proof-tool-git-main.evil.app"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeGenerator{artifact: validArtifact()}
+			server := NewServer(fake, testToken, []string{"https://proof-tool.example.app", "https://proof-tool-git-*.example.app"})
+			rr := postProve(t, server, validProveRequest(), tc.origin, testToken)
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+			}
+			if fake.called {
+				t.Fatalf("generator called for disallowed origin %q", tc.origin)
+			}
+		})
+	}
+}
+
+func TestHelperStatusListsWildcardOrigins(t *testing.T) {
+	server := NewServer(FixtureGenerator{}, testToken, []string{"https://proof-tool.example.app", "https://proof-tool-git-*.example.app"})
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rr := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rr, req)
+	var status StatusResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"https://proof-tool.example.app":       false,
+		"https://proof-tool-git-*.example.app": false,
+	}
+	for _, origin := range status.SupportedOrigins {
+		if _, ok := want[origin]; ok {
+			want[origin] = true
+		}
+	}
+	for origin, seen := range want {
+		if !seen {
+			t.Fatalf("supported origins %+v missing %q", status.SupportedOrigins, origin)
+		}
+	}
+}
+
 func TestProductionGeneratorFailsClosedWhenKeysAreMissing(t *testing.T) {
 	generator := &OwnershipGenerator{KeysDir: t.TempDir()}
 	_, err := generator.GenerateProof(context.Background(), ProveInput{
