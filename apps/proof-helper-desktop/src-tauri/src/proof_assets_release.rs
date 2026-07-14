@@ -21,7 +21,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tar::Archive;
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use url::Url;
 
 const PROOF_ASSET_INSTALL_PROGRESS_EVENT: &str = "proof-asset-install-progress";
@@ -118,17 +118,22 @@ pub fn active_descriptor() -> ProofAssetsReleaseDescriptor {
     }
 }
 
+// Async + blocking worker thread: the download takes minutes and must not
+// run on the main thread (see the note in key_bundle.rs).
 #[tauri::command]
-pub fn install_proof_assets_release<R: Runtime>(
+pub async fn install_proof_assets_release<R: Runtime>(
     app: AppHandle<R>,
-    state: State<'_, KeyBundleState>,
 ) -> Result<KeyBundleStatus, String> {
-    state.cancel_activation.store(false, Ordering::SeqCst);
-    let descriptor = active_descriptor();
-    let install_result = install_release_from_descriptor(&app, &state, &descriptor);
-    state.cancel_activation.store(false, Ordering::SeqCst);
-    install_result?;
-    key_bundle::inspect_key_bundle(&app)
+    key_bundle::run_blocking(move || {
+        let state = app.state::<KeyBundleState>();
+        state.cancel_activation.store(false, Ordering::SeqCst);
+        let descriptor = active_descriptor();
+        let install_result = install_release_from_descriptor(&app, state.inner(), &descriptor);
+        state.cancel_activation.store(false, Ordering::SeqCst);
+        install_result?;
+        key_bundle::inspect_key_bundle(&app)
+    })
+    .await
 }
 
 fn install_release_from_descriptor<R: Runtime>(

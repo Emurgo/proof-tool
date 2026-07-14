@@ -40,43 +40,66 @@ pub struct ActivateKeyBundleRequest {
     pub min_free_bytes: Option<u64>,
 }
 
-#[tauri::command]
-pub fn key_status<R: Runtime>(app: AppHandle<R>) -> Result<KeyBundleStatus, String> {
-    inspect_key_bundle(&app)
+// Tauri runs non-async commands on the main thread, where anything slow
+// freezes the window's event loop ("Not Responding" on Windows). Bundle
+// inspection hashes the 1.3 GiB proving key and installs download it, so
+// every command below is async and delegates to a blocking worker thread.
+// `cancel_key_bundle_activation` stays synchronous on purpose: it is an
+// atomic store that must remain responsive while an install is running.
+pub(crate) async fn run_blocking<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    match tauri::async_runtime::spawn_blocking(work).await {
+        Ok(result) => result,
+        Err(err) => Err(format!("background task failed: {err}")),
+    }
 }
 
 #[tauri::command]
-pub fn activate_key_bundle<R: Runtime>(
+pub async fn key_status<R: Runtime>(app: AppHandle<R>) -> Result<KeyBundleStatus, String> {
+    run_blocking(move || inspect_key_bundle(&app)).await
+}
+
+#[tauri::command]
+pub async fn activate_key_bundle<R: Runtime>(
     app: AppHandle<R>,
-    state: State<'_, KeyBundleState>,
     request: ActivateKeyBundleRequest,
 ) -> Result<KeyBundleStatus, String> {
-    state.cancel_activation.store(false, Ordering::SeqCst);
-    let paths = key_cache_paths(&app)?;
-    let request = InstallRequest {
-        source_dir: PathBuf::from(request.source_dir),
-        active_dir: paths.active_dir.clone(),
-        downloading_dir: paths.downloading_dir.clone(),
-        trusted_manifest_public_key_hex: request.trusted_manifest_public_key_hex,
-        expected_signature_key_id: request.expected_signature_key_id,
-        min_free_bytes: request.min_free_bytes,
-    };
-    let install_result = key_bundle_core::install_bundle_with_progress(&request, |progress| {
-        if state.cancel_activation.load(Ordering::SeqCst) {
-            return Err("key bundle activation cancelled".to_string());
-        }
-        emit_progress(&app, &progress)
-    });
-    state.cancel_activation.store(false, Ordering::SeqCst);
-    install_result?;
-    inspect_key_bundle(&app)
+    run_blocking(move || {
+        let state = app.state::<KeyBundleState>();
+        state.cancel_activation.store(false, Ordering::SeqCst);
+        let paths = key_cache_paths(&app)?;
+        let request = InstallRequest {
+            source_dir: PathBuf::from(request.source_dir),
+            active_dir: paths.active_dir.clone(),
+            downloading_dir: paths.downloading_dir.clone(),
+            trusted_manifest_public_key_hex: request.trusted_manifest_public_key_hex,
+            expected_signature_key_id: request.expected_signature_key_id,
+            min_free_bytes: request.min_free_bytes,
+        };
+        let install_result = key_bundle_core::install_bundle_with_progress(&request, |progress| {
+            if state.cancel_activation.load(Ordering::SeqCst) {
+                return Err("key bundle activation cancelled".to_string());
+            }
+            emit_progress(&app, &progress)
+        });
+        state.cancel_activation.store(false, Ordering::SeqCst);
+        install_result?;
+        inspect_key_bundle(&app)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn delete_key_cache<R: Runtime>(app: AppHandle<R>) -> Result<KeyBundleStatus, String> {
-    let paths = key_cache_paths(&app)?;
-    key_bundle_core::delete_cache(&paths.active_dir, &paths.downloading_dir)?;
-    inspect_key_bundle(&app)
+pub async fn delete_key_cache<R: Runtime>(app: AppHandle<R>) -> Result<KeyBundleStatus, String> {
+    run_blocking(move || {
+        let paths = key_cache_paths(&app)?;
+        key_bundle_core::delete_cache(&paths.active_dir, &paths.downloading_dir)?;
+        inspect_key_bundle(&app)
+    })
+    .await
 }
 
 #[tauri::command]
