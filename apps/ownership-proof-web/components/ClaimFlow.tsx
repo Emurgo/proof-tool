@@ -517,11 +517,11 @@ const DESTINATION_PROFILE = "single-destination";
 const releaseRepo = "https://github.com/Anastasia-Labs/proof-tool-release";
 // Pinned release tags: `releases/latest` is unsafe because the repository also
 // hosts proof-assets releases, which can become "latest" and break these URLs.
-const desktopReleaseTag = "proof-helper-desktop-v0.2.0-preview.1";
+const desktopReleaseTag = "proof-helper-desktop-v0.2.1";
 const portableReleaseTag = "proof-helper-v0.1.0";
-const windowsInstallerDownload = `${releaseRepo}/releases/download/${desktopReleaseTag}/proof-helper_0.2.0_windows_x64_setup.exe`;
+const windowsInstallerDownload = `${releaseRepo}/releases/download/${desktopReleaseTag}/proof-helper_0.2.1_windows_x64_setup.exe`;
 const macZipDownload = `${releaseRepo}/releases/download/${portableReleaseTag}/proof-helper_0.1.0_macos_universal.zip`;
-const linuxDebDownload = `${releaseRepo}/releases/download/${desktopReleaseTag}/proof-helper_0.2.0_amd64.deb`;
+const linuxDebDownload = `${releaseRepo}/releases/download/${desktopReleaseTag}/proof-helper_0.2.1_amd64.deb`;
 
 const proofHelperDownloadChoices = [
   {
