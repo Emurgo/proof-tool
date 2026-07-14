@@ -61,6 +61,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Bootstrap vendored gnark (reviewed patches)
+        run: bash scripts/bootstrap-vendor.sh
+
       - name: Go tests
         run: go test ./...
 
@@ -121,6 +124,10 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Bootstrap vendored gnark (reviewed patches)
+        shell: bash
+        run: bash scripts/bootstrap-vendor.sh
+
       - name: Build Windows sidecar
         shell: bash
         run: |
@@ -163,8 +170,8 @@ jobs:
             echo
             echo "- Target: x86_64-pc-windows-msvc"
             echo "- Signing status: ${signing_status}"
-            echo "- Proof-assets descriptor: proof-assets-ownership-destination-v1-preprod-d2c944d-r3"
-            echo "- Proof-assets download route: not configured unless the release manifest says download_configured is true"
+            echo "- Proof-assets descriptor: proof-assets-ownership-destination-v2-preprod-9fac96b-g3a"
+            echo "- Proof-assets download route: public HTTPS (GitHub release asset), size and hashes pinned in the app descriptor"
             echo
             echo "Do not describe this as a general Windows end-user release until Authenticode signatures, a public proof-assets download route, and local Windows release-build validation are complete."
           } > dist/proof-helper-windows-x64/release-notes.md
