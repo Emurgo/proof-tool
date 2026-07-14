@@ -3,7 +3,7 @@ import { bech32 } from "bech32";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaimFlow, selectClaimBatchRows } from "./ClaimFlow";
-import { broadcastPairing, subscribeToPairing } from "../lib/proving/helper-pairing-relay";
+import { acknowledgePairing, broadcastPairing, subscribeToPairing } from "../lib/proving/helper-pairing-relay";
 
 const credential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const usedCredential = "22222222222222222222222222222222222222222222222222222222";
@@ -837,6 +837,28 @@ describe("ClaimFlow", () => {
     await waitFor(() => expect(acks).toContain(courier));
     expect(window.location.hash).toBe("");
     unsubscribe();
+  });
+
+  it("courier tab shows the paired confirmation and closes itself once an existing tab acknowledges", async () => {
+    vi.stubGlobal("fetch", claimFlowFetch());
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    // An "existing tab" that takes any relayed pairing and acknowledges it.
+    const existing = "existing-tab-under-test";
+    const unsubscribe = subscribeToPairing({
+      sender: existing,
+      onPair: ({ sender }) => acknowledgePairing(sender, existing),
+    });
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    // The courier never runs the flow itself: it relays, confirms, and closes.
+    expect(await screen.findByTestId("helper-courier")).toBeInTheDocument();
+    expect(await screen.findByText("Proof Helper paired")).toBeInTheDocument();
+    expect(window.location.hash).toBe("");
+    await waitFor(() => expect(close).toHaveBeenCalled(), { timeout: 4000 });
+    unsubscribe();
+    close.mockRestore();
   });
 
   it("renders non-fixture proof readiness from the draft without demo proof progress or placeholder addresses", async () => {

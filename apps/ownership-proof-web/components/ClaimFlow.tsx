@@ -558,6 +558,9 @@ const clipboardReadTimeoutMs = 2_500;
 // How long a courier tab waits for an existing tab to acknowledge the relayed
 // pairing before assuming it is the only tab and pairing itself.
 const courierAckTimeoutMs = 600;
+// How long the courier tab shows its "paired" confirmation before closing
+// itself. If the browser refuses window.close(), the message stays visible.
+const courierAutoCloseDelayMs = 1500;
 
 const defaultCreateWorker = () =>
   new Worker(new URL("../workers/ownership-proof-worker.ts", import.meta.url), {
@@ -796,6 +799,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
 
     const sender = relaySenderIdRef.current;
     let settled = false;
+    let closeTimer: number | undefined;
     setCourierStatus("relaying");
     const unsubscribe = subscribeToPairing({
       sender,
@@ -806,6 +810,13 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         settled = true;
         window.clearTimeout(timer);
         setCourierStatus("relayed");
+        // This tab was opened by the desktop app and has a single history
+        // entry (the landing page forwards with location.replace), so the
+        // browser permits window.close(). Leave a beat so the confirmation is
+        // readable; if the browser refuses, the message covers it.
+        closeTimer = window.setTimeout(() => {
+          window.close();
+        }, courierAutoCloseDelayMs);
       },
     });
     broadcastPairing(pairing, sender);
@@ -821,6 +832,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
 
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(closeTimer);
       unsubscribe();
     };
   }, [fixtureEnabled, pairInThisTab]);
@@ -2535,7 +2547,7 @@ function HelperPairingCourier({ status }: { status: "relaying" | "relayed" }) {
               <strong>{relayed ? "Proof Helper paired" : "Connecting Proof Helper…"}</strong>
               <p>
                 {relayed
-                  ? "Your claim is paired in the tab you already had open. You can close this tab and continue there."
+                  ? "Your claim is paired in the tab you already had open. This tab will close itself — if it stays open, you can close it and continue there."
                   : "Handing the Proof Helper connection to your open claim tab. This only takes a moment."}
               </p>
             </div>
