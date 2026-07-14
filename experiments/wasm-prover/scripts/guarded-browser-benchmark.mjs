@@ -48,6 +48,7 @@ const defaults = {
   artifactOverrides: null,
   privateInputsFile: "",
   privateInputs: null,
+  acceptRemoteHarnessPrivateInputExposure: false,
   browserCookieFile: "",
   browserCookies: [],
   browserProfileDir: "",
@@ -968,6 +969,9 @@ function parseArgs(args, base) {
       case "--artifact-overrides":
         options.artifactOverridesFile = path.resolve(nextValue());
         break;
+      case "--accept-remote-harness-private-input-exposure":
+        options.acceptRemoteHarnessPrivateInputExposure = true;
+        break;
       case "--private-inputs-file":
         options.privateInputsFile = path.resolve(nextValue());
         break;
@@ -1157,7 +1161,12 @@ Options:
   --rf N                              Range fetch concurrency. Default: ${defaults.rangeFetchConcurrency}
   --chunk-prefetch-window N           Verified chunk window (1-4). Default: 2
   --artifact-overrides FILE           Public artifact URL overrides JSON.
-  --private-inputs-file FILE          Local proof inputs injected before navigation; never served.
+  --private-inputs-file FILE          Local proof inputs injected into the harness page before navigation.
+                                      Loopback harnesses only, unless the exposure flag below is passed.
+  --accept-remote-harness-private-input-exposure
+                                      Allow injecting private inputs into a non-loopback https harness.
+                                      The harness origin's scripts can read them: pass this only for a
+                                      deployment you control, with expendable benchmark keys.
   --browser-profile-dir DIR           Persistent Chromium profile for cold/warm runs.
   --browser-cookie-file FILE           Local Netscape cookie file; values are never written to output.
   --cache-mode cold|warm              Clear or retain that profile cache.

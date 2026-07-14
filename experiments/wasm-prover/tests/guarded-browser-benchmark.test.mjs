@@ -18,6 +18,7 @@ import {
   assertBenchmarkWorkerCount,
   assertHostEmulationProbe,
   assertHostEmulationTrace,
+  assertPrivateInputBoundary,
   benchmarkRuntimeTuning,
   hostEmulationSummaryFields,
   prepareBenchmarkRuntime,
@@ -45,6 +46,48 @@ function options(overrides = {}) {
     ...overrides,
   };
 }
+
+test("private inputs only reach loopback harnesses without the exposure flag", () => {
+  const privates = { master_xprv_hex: "00" };
+  assert.doesNotThrow(() =>
+    assertPrivateInputBoundary(
+      options({ privateInputs: privates, baseURL: "http://127.0.0.1:8788/" }),
+    ),
+  );
+  // No private inputs: any harness URL is fine.
+  assert.doesNotThrow(() =>
+    assertPrivateInputBoundary(
+      options({ privateInputs: null, baseURL: "https://example.vercel.app/" }),
+    ),
+  );
+  assert.throws(
+    () =>
+      assertPrivateInputBoundary(
+        options({ privateInputs: privates, baseURL: "https://example.vercel.app/" }),
+      ),
+    /refusing to inject private inputs/,
+  );
+  assert.throws(
+    () =>
+      assertPrivateInputBoundary(
+        options({
+          privateInputs: privates,
+          baseURL: "http://example.vercel.app/",
+          acceptRemoteHarnessPrivateInputExposure: true,
+        }),
+      ),
+    /https/,
+  );
+  assert.doesNotThrow(() =>
+    assertPrivateInputBoundary(
+      options({
+        privateInputs: privates,
+        baseURL: "https://example.vercel.app/",
+        acceptRemoteHarnessPrivateInputExposure: true,
+      }),
+    ),
+  );
+});
 
 test("guarded benchmark CLI accepts bounded chunk prefetch windows", () => {
   const script = path.resolve(

@@ -50,6 +50,9 @@ for (const testCase of cases) {
     "--chunk-prefetch-window", String(testCase.prefetchWindow),
     "--artifact-overrides", overridePath,
     "--private-inputs-file", path.resolve(config.private_inputs_file),
+    ...(config.accept_remote_harness_private_input_exposure === true
+      ? ["--accept-remote-harness-private-input-exposure"]
+      : []),
     "--browser-profile-dir", profileDir,
     ...(config.browser_cookie_file
       ? ["--browser-cookie-file", path.resolve(config.browser_cookie_file)]
@@ -182,6 +185,24 @@ function artifactsForCase(input, testCase) {
 function validateConfig(input) {
   if (!/^https?:\/\//u.test(input.harness_base_url || "")) {
     throw new Error("harness_base_url must be http(s)");
+  }
+  // The matrix always injects private inputs into the harness page, so a
+  // non-loopback harness needs the explicit exposure acknowledgment and https
+  // (mirrors assertPrivateInputBoundary in runtime/host-emulation.mjs).
+  const harness = new URL(input.harness_base_url);
+  const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(harness.hostname);
+  if (!loopback) {
+    if (input.accept_remote_harness_private_input_exposure !== true) {
+      throw new Error(
+        "harness_base_url is not loopback: scripts served by " + harness.origin +
+        " can read the injected private inputs. Set " +
+        "accept_remote_harness_private_input_exposure: true only if you control " +
+        "the deployment and the inputs are expendable benchmark keys",
+      );
+    }
+    if (harness.protocol !== "https:") {
+      throw new Error("a non-loopback harness receiving private inputs must use https");
+    }
   }
   for (const field of ["output_dir", "browser_profile_dir", "private_inputs_file"]) {
     if (typeof input[field] !== "string" || input[field] === "") {
