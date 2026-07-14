@@ -70,6 +70,14 @@ jobs:
       - name: Bootstrap vendored gnark (reviewed patches)
         run: bash scripts/bootstrap-vendor.sh
 
+      - name: Build Linux sidecar (Tauri build-script resource)
+        run: |
+          mkdir -p "$PROOF_HELPER_TAURI_DIR/binaries"
+          go build -trimpath -ldflags="-s -w" \
+            -o "$PROOF_HELPER_TAURI_DIR/binaries/proof-tool-x86_64-unknown-linux-gnu" \
+            ./cmd/proof-tool
+          test -s "$PROOF_HELPER_TAURI_DIR/binaries/proof-tool-x86_64-unknown-linux-gnu"
+
       - name: Go tests
         run: go test ./...
 

@@ -10,19 +10,27 @@ const TARGET = "x86_64-pc-windows-msvc";
 const WINDOWS_ASSET_EXTENSIONS = new Set([".exe", ".msi", ".msix", ".msixbundle", ".zip"]);
 const RESERVED_TAGS = new Set(["proof-helper-v0.1.0"]);
 
+// Mirrors active_descriptor() in src-tauri/src/proof_assets_release.rs; env
+// vars remain as overrides for staging against an unpublished archive.
 const proofAssetsDescriptor = {
-  release_tag: "proof-assets-ownership-destination-v1-preprod-d2c944d-r3",
+  release_tag: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a",
   profile: "preprod-single-destination",
-  archive_url: process.env.PROOF_ASSETS_ARCHIVE_URL || null,
-  archive_size: numberFromEnv("PROOF_ASSETS_ARCHIVE_SIZE"),
-  archive_sha256: process.env.PROOF_ASSETS_ARCHIVE_SHA256 || null,
-  archive_blake2b256: process.env.PROOF_ASSETS_ARCHIVE_BLAKE2B256 || null,
-  expected_key_version: "ownership-destination-v1",
-  expected_circuit_id: "root-ownership-destination-v1/bls12-381/groth16",
-  expected_vk_hash: "blake2b256:6057da91b15dea8f8e93997f1b1944c35bc2c86faf9a9de17b814f6a172d430a",
-  expected_signature_key_id: "preprod-local-destination-d2c944dd753c-r3",
-  trusted_manifest_public_key_hex: "e20b0fb38fb6dc0a66284a8f3a6e8d05bf55b8e966d86f53b77d284b524463d6",
-  expected_cardano_vk_blake2b256: "blake2b256:d35ce80449fddb17cacbf922dfe27e57c28afcd59bee44bcef8eecbd7b317acf",
+  archive_url:
+    process.env.PROOF_ASSETS_ARCHIVE_URL ||
+    "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a.tar",
+  archive_size: numberFromEnv("PROOF_ASSETS_ARCHIVE_SIZE") ?? 1417943040,
+  archive_sha256:
+    process.env.PROOF_ASSETS_ARCHIVE_SHA256 ||
+    "sha256:ee2f232f828da815428965ceb7d57719e32b706fce3373cff603de73a29fdff9",
+  archive_blake2b256:
+    process.env.PROOF_ASSETS_ARCHIVE_BLAKE2B256 ||
+    "blake2b256:2a44af40ef01cbdca91728098c96978af247ca65dd7ea632090393709a516a28",
+  expected_key_version: "ownership-destination-v2",
+  expected_circuit_id: "root-ownership-destination-v2/bls12-381/groth16",
+  expected_vk_hash: "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80",
+  expected_signature_key_id: "preprod-local-destination-v2-9fac96b-g3a",
+  trusted_manifest_public_key_hex: "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb",
+  expected_cardano_vk_blake2b256: "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4",
 };
 
 const args = parseArgs(process.argv.slice(2));
