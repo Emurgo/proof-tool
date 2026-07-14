@@ -685,23 +685,27 @@ function normalizeLocalURL(value: string) {
 }
 
 const releaseRepo = "https://github.com/Anastasia-Labs/proof-tool-release";
-const releasePage = `${releaseRepo}/releases/latest`;
-const windowsZipDownload = `${releaseRepo}/releases/latest/download/proof-helper_0.1.0_windows_x64.zip`;
-const macZipDownload = `${releaseRepo}/releases/latest/download/proof-helper_0.1.0_macos_universal.zip`;
-const linuxDebDownload = `${releaseRepo}/releases/latest/download/proof-helper_0.1.0_amd64.deb`;
+// Pinned release tags: `releases/latest` is unsafe because the repository also
+// hosts proof-assets releases, which can become "latest" and break these URLs.
+const desktopReleaseTag = "proof-helper-desktop-v0.2.0-preview.1";
+const portableReleaseTag = "proof-helper-v0.1.0";
+const releasePage = `${releaseRepo}/releases/tag/${desktopReleaseTag}`;
+const windowsInstallerDownload = `${releaseRepo}/releases/download/${desktopReleaseTag}/proof-helper_0.2.0_windows_x64_setup.exe`;
+const macZipDownload = `${releaseRepo}/releases/download/${portableReleaseTag}/proof-helper_0.1.0_macos_universal.zip`;
+const linuxDebDownload = `${releaseRepo}/releases/download/${desktopReleaseTag}/proof-helper_0.2.0_amd64.deb`;
 
 const downloadChoices = [
   {
     platform: "windows",
     label: "Windows",
-    description: "Downloads the Windows helper package.",
-    action: "Download .zip",
-    href: windowsZipDownload,
+    description: "Downloads the Windows helper installer.",
+    action: "Download installer",
+    href: windowsInstallerDownload,
   },
   {
     platform: "mac",
     label: "macOS",
-    description: "Downloads the universal macOS helper package.",
+    description: "Downloads the universal macOS helper package (older preview build).",
     action: "Download .zip",
     href: macZipDownload,
   },

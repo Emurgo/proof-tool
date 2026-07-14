@@ -20,21 +20,21 @@ describe("ProofFlow", () => {
     expect(screen.queryByRole("link", { name: /install proof helper/i })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^downloads$/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/tag/proof-helper-desktop-v0.2.0-preview.1",
     );
     fireEvent.click(screen.getByRole("button", { name: /install proof helper/i }));
     expect(screen.getByRole("dialog", { name: /choose your installer/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /windows/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest/download/proof-helper_0.1.0_windows_x64.zip",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.0-preview.1/proof-helper_0.2.0_windows_x64_setup.exe",
     );
     expect(screen.getByRole("link", { name: /macos/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest/download/proof-helper_0.1.0_macos_universal.zip",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-v0.1.0/proof-helper_0.1.0_macos_universal.zip",
     );
     expect(screen.getByRole("link", { name: /linux/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/latest/download/proof-helper_0.1.0_amd64.deb",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.0-preview.1/proof-helper_0.2.0_amd64.deb",
     );
     expect(screen.queryByLabelText("Pairing token")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Helper URL")).not.toBeInTheDocument();
