@@ -1,4 +1,15 @@
 output/
+.codex/
+.agents/
+.git/
+dist/
+experiments/
+contracts/
+cmd/
+internal/
+scripts/
+docs/
+apps/proof-helper-desktop/
 .proof-tool/
 .env.local
 .env.*.local
