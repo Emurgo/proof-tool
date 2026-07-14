@@ -280,7 +280,7 @@ describe("ClaimFlow", () => {
     const dialog = await screen.findByRole("dialog", { name: "Choose your installer" });
     expect(within(dialog).getByRole("link", { name: /Windows/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.0-preview.1/proof-helper_0.2.0_windows_x64_setup.exe",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.1/proof-helper_0.2.1_windows_x64_setup.exe",
     );
     expect(within(dialog).getByRole("link", { name: /macOS/i })).toHaveAttribute(
       "href",
@@ -288,7 +288,7 @@ describe("ClaimFlow", () => {
     );
     expect(within(dialog).getByRole("link", { name: /Linux/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.0-preview.1/proof-helper_0.2.0_amd64.deb",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.1/proof-helper_0.2.1_amd64.deb",
     );
     expect(within(dialog).getByText("Windows zip start command")).toBeInTheDocument();
     expect(within(dialog).getByText(/Start Proof Helper\.bat/)).toHaveTextContent(
