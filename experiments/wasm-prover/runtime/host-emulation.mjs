@@ -41,6 +41,7 @@ export function benchmarkRuntimeTuning(options) {
     worker_count: options.workers,
     shard_count: options.shards,
     range_fetch_concurrency: options.rangeFetchConcurrency,
+    chunk_prefetch_window: options.chunkPrefetchWindow,
     ...(options.pinnedDecode === null
       ? {}
       : { pinned_decode: options.pinnedDecode }),
@@ -53,11 +54,47 @@ export function benchmarkRuntimeTuning(options) {
   };
 }
 
+// AGENTS.md: master XPrvs must stay local. Injecting private inputs into a
+// page hands them to every script the harness origin serves, so anything
+// beyond loopback requires an explicit operator acknowledgment plus https —
+// the operator is asserting they control the deployment and the inputs are
+// expendable benchmark keys.
+export function assertPrivateInputBoundary(options) {
+  if (!options.privateInputs || typeof options.privateInputs !== "object") {
+    return;
+  }
+  const url = new URL(options.baseURL);
+  const loopback =
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "localhost" ||
+    url.hostname === "::1" ||
+    url.hostname === "[::1]";
+  if (loopback) return;
+  if (options.acceptRemoteHarnessPrivateInputExposure !== true) {
+    throw new Error(
+      "refusing to inject private inputs into the non-loopback harness origin " +
+        url.origin +
+        ": scripts served by that origin can read them. Pass " +
+        "--accept-remote-harness-private-input-exposure only if you control " +
+        "the deployment and the inputs are expendable benchmark keys.",
+    );
+  }
+  if (url.protocol !== "https:") {
+    throw new Error(
+      "a non-loopback harness receiving private inputs must be served over https",
+    );
+  }
+}
+
 export async function installBenchmarkPageInit(page, options) {
+  assertPrivateInputBoundary(options);
   await page.addInitScript(
-    ({ gogc, gomemlimit, hardwareConcurrency, deviceMemoryGiB }) => {
+    ({ gogc, gomemlimit, hardwareConcurrency, deviceMemoryGiB, privateInputs }) => {
       globalThis.__GOGC = gogc;
       globalThis.__GOMEMLIMIT = gomemlimit;
+      if (privateInputs && typeof privateInputs === "object") {
+        globalThis.__benchmarkPrivateRequest = structuredClone(privateInputs);
+      }
       if (Number.isSafeInteger(hardwareConcurrency) && hardwareConcurrency > 0) {
         Object.defineProperty(navigator, "hardwareConcurrency", {
           configurable: true,
@@ -76,6 +113,7 @@ export async function installBenchmarkPageInit(page, options) {
       gomemlimit: options.gomemlimit,
       hardwareConcurrency: options.emulateHardwareConcurrency,
       deviceMemoryGiB: options.emulateDeviceMemoryGiB,
+      privateInputs: options.privateInputs || null,
     },
   );
 }

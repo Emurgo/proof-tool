@@ -1,8 +1,8 @@
 {
   "schema": "proof-tool-proof-assets-chunk-manifest-v1",
-  "release": "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-pk2m-r1",
+  "release": "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-optremote-r1-2m-hit",
   "profile": "preprod-single-destination",
-  "generated_at": "2026-07-13T20:53:44Z",
+  "generated_at": "2026-07-14T03:33:39Z",
   "signature_key_id": "preprod-local-destination-v2-9fac96b-g3a",
   "coherence": {
     "key_manifest_sha256": "sha256:ee4610efa42482bbd78ce019582dc98ae9a91a806c2ab63436157f42a166c8ab",
@@ -26,7 +26,7 @@
     "deployment_source_commit": "c513fd78ecb14a4119769986675d602dffa741b4"
   },
   "transport": {
-    "base_url": "https://proof-assets-2m.reclaim-proof.com/proof-assets/preprod-9fac96b-g3a-pk2m-r1/",
+    "base_url": "https://proof-assets-2m.reclaim-proof.com/proof-assets/preprod-9fac96b-g3a-optremote-r1-2m-hit/",
     "content_encoding": "identity",
     "requires_https": true,
     "supports_range": true
@@ -5011,9 +5011,9 @@
   "assets": {
     "msmworker.wasm": {
       "path": "msmworker.wasm",
-      "size": 11982326,
-      "sha256": "sha256:829f5d523357520ddea35003d7aec2697eccffe7ec8aa31d62fda3ed4ad89f92",
-      "blake2b256": "blake2b256:87c0f88c3eb73e2cecfa7fc2de0b03caa74e8b5e0d94f354172cfdecbefaa79b"
+      "size": 11981950,
+      "sha256": "sha256:dbf21d3b9f7c25a45087172e65913da56e23ca90aa31b862b8ac6eb1891ae3ce",
+      "blake2b256": "blake2b256:db11d7ce2cceca008ef5a72ad94901dcdfb543f10e9fc4b1205c96689744b5fa"
     },
     "ownership-destination.ccs": {
       "path": "ownership-destination.ccs",
@@ -5029,15 +5029,15 @@
     },
     "proof-destination.wasm": {
       "path": "proof-destination.wasm",
-      "size": 24428215,
-      "sha256": "sha256:ead88ca4f30161f73e700faf1ed6707dac8bf3feb987934e51062cb3760c8ec0",
-      "blake2b256": "blake2b256:42e9d2f381c615005f9107fcae03718497147938ecac8fc3974d6e4ad6a27ac8"
+      "size": 24451861,
+      "sha256": "sha256:40be2cc13e28fc420958582012d953007880f303a7d4e5912d5715731ec03ef1",
+      "blake2b256": "blake2b256:5094e105b6414c3fa46d19cef61a2ef2c09caa11c05e9594da41c6a3a983595d"
     },
     "worker.js": {
       "path": "worker.js",
-      "size": 13081,
-      "sha256": "sha256:2681219f2d63b193dfed3f2dd855294271fa5e54a42ed695cb022bdc9b56c77a",
-      "blake2b256": "blake2b256:4120d3f7f4407a5160fece0cfc44b56b91afdc69b8835cf213dbfa6791db77ff"
+      "size": 14139,
+      "sha256": "sha256:7a01199424905823248023a3a8728f3a1931445aa1bf27bc4b165df7e001ca97",
+      "blake2b256": "blake2b256:f3c4991434accfe80128b8930fe552c5ffcc86e8d331be22656735855d57e8b8"
     }
   }
 }

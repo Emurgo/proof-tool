@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,7 @@ import {
   requiredWorkerGoTelemetryFields,
 } from "../runtime/common.mjs";
 import {
+  assertRedactedBenchmarkOutput,
   invalidateCaseOutput,
   writeCaseOutputAtomic,
 } from "../runtime/guarded-output.mjs";
@@ -16,6 +18,7 @@ import {
   assertBenchmarkWorkerCount,
   assertHostEmulationProbe,
   assertHostEmulationTrace,
+  assertPrivateInputBoundary,
   benchmarkRuntimeTuning,
   hostEmulationSummaryFields,
   prepareBenchmarkRuntime,
@@ -28,6 +31,7 @@ function options(overrides = {}) {
     workers: 8,
     shards: 16,
     rangeFetchConcurrency: 2,
+    chunkPrefetchWindow: 2,
     gogc: "15",
     gomemlimit: "2400MiB",
     pinnedDecode: true,
@@ -42,6 +46,61 @@ function options(overrides = {}) {
     ...overrides,
   };
 }
+
+test("private inputs only reach loopback harnesses without the exposure flag", () => {
+  const privates = { master_xprv_hex: "00" };
+  assert.doesNotThrow(() =>
+    assertPrivateInputBoundary(
+      options({ privateInputs: privates, baseURL: "http://127.0.0.1:8788/" }),
+    ),
+  );
+  // No private inputs: any harness URL is fine.
+  assert.doesNotThrow(() =>
+    assertPrivateInputBoundary(
+      options({ privateInputs: null, baseURL: "https://example.vercel.app/" }),
+    ),
+  );
+  assert.throws(
+    () =>
+      assertPrivateInputBoundary(
+        options({ privateInputs: privates, baseURL: "https://example.vercel.app/" }),
+      ),
+    /refusing to inject private inputs/,
+  );
+  assert.throws(
+    () =>
+      assertPrivateInputBoundary(
+        options({
+          privateInputs: privates,
+          baseURL: "http://example.vercel.app/",
+          acceptRemoteHarnessPrivateInputExposure: true,
+        }),
+      ),
+    /https/,
+  );
+  assert.doesNotThrow(() =>
+    assertPrivateInputBoundary(
+      options({
+        privateInputs: privates,
+        baseURL: "https://example.vercel.app/",
+        acceptRemoteHarnessPrivateInputExposure: true,
+      }),
+    ),
+  );
+});
+
+test("guarded benchmark CLI accepts bounded chunk prefetch windows", () => {
+  const script = path.resolve(
+    "experiments/wasm-prover/scripts/guarded-browser-benchmark.mjs",
+  );
+  const result = spawnSync(
+    process.execPath,
+    [script, "--chunk-prefetch-window", "4", "--help"],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /--chunk-prefetch-window/);
+});
 
 test("small-host CLI values must be paired and valid", () => {
   assert.doesNotThrow(() => validateHostEmulationOptions(options()));
@@ -94,6 +153,7 @@ test("normal-host tuning remains unchanged when emulation is disabled", () => {
       worker_count: 8,
       shard_count: 16,
       range_fetch_concurrency: 2,
+      chunk_prefetch_window: 2,
       pinned_decode: true,
       opt_w1: true,
       opt_w2: true,
@@ -300,4 +360,34 @@ test("qualified case output is atomically published without temporary residue", 
   await writeCaseOutputAtomic(output, result);
   assert.deepEqual(JSON.parse(await fs.readFile(output, "utf8")), result);
   assert.deepEqual(await fs.readdir(directory), ["case.json"]);
+});
+
+test("benchmark output redaction rejects secret values and prohibited request fields", () => {
+  const privateInputs = {
+    master_xprv_hex: "private-master-xprv-sentinel",
+    search: { account: 0, role: 0, index: 0 },
+  };
+  assert.doesNotThrow(() =>
+    assertRedactedBenchmarkOutput(
+      {
+        trace: { scalar_bytes: 4096, credential_path_redacted: true },
+        artifact: { proof: "public-proof", public_inputs: ["01"] },
+      },
+      privateInputs,
+    ),
+  );
+  assert.throws(
+    () =>
+      assertRedactedBenchmarkOutput(
+        { trace: { message: `leak:${privateInputs.master_xprv_hex}` } },
+        privateInputs,
+      ),
+    /private input value/,
+  );
+  for (const key of ["master_xprv_hex", "credential_path", "scalars", "proof_request"]) {
+    assert.throws(
+      () => assertRedactedBenchmarkOutput({ [key]: "sentinel" }, privateInputs),
+      /forbidden field/,
+    );
+  }
 });

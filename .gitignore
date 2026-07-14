@@ -79,3 +79,4 @@ experiments/wasm-prover/web/*
 /docs/coin-level-witness-k20-proposal.md
 /docs/ux-review-landing-and-claim-flow.md
 /contracts/ownership-verifier/testdata/*-review.md
+.vercel/
