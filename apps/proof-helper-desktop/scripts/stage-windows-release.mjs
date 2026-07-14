@@ -130,6 +130,10 @@ function parseArgs(argv) {
   const parsed = {};
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === "--") {
+      // pnpm 10 forwards the literal `--` separator from `pnpm run ... -- args`.
+      continue;
+    }
     if (!arg.startsWith("--")) {
       fail(`unexpected argument: ${arg}`);
     }
