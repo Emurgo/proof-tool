@@ -189,6 +189,7 @@ type SafeWalletSigningSessionState =
   | "ready"
   | "destination-blocked";
 type ClaimSubmitPhase =
+  | "building-transaction"
   | "ready-to-sign"
   | "reconnect-required"
   | "reconnecting"
@@ -648,6 +649,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   // generating screen, otherwise artifacts/errors are stashed silently.
   const proofRunIdRef = useRef(0);
   const proofRunInFlightRef = useRef(false);
+  const buildInFlightRef = useRef(false);
   const scanAbortRef = useRef<AbortController | null>(null);
   const [claimScanProgress, setClaimScanProgress] = useState(0);
   const submittedRefreshInFlightRef = useRef(false);
@@ -1675,7 +1677,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       goNext();
       return;
     }
-    if (build && (isSubmitBusy(submitPhase) || submitInFlightRef.current)) {
+    if (buildInFlightRef.current || (build && (isSubmitBusy(submitPhase) || submitInFlightRef.current))) {
       return;
     }
     if (!deployment?.available || !draft || !safeWallet) {
@@ -1687,8 +1689,10 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return;
     }
     if (!build) {
+      buildInFlightRef.current = true;
       setBuildError("");
       setSubmitError("");
+      setSubmitPhase("building-transaction");
       try {
         const nextBuild = await postJSON<ClaimBuildResponse>("/claim-api/build", {
           deploymentId: deployment.deployment.id,
@@ -1706,6 +1710,8 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         setBuild(null);
         setSubmitPhase("failed");
         setBuildError(sanitizeRecoverableError(error, "Unable to build the claim transaction."));
+      } finally {
+        buildInFlightRef.current = false;
       }
       return;
     }
@@ -3907,9 +3913,11 @@ function CurrentBatch({
       backLabel="Go back"
       nextLabel={nextLabel}
       nextHint={nextHint}
-      nextIcon={Wallet}
+      nextIcon={busy ? RefreshCw : Wallet}
+      nextIconSpinning={busy}
       onBack={onBack}
       onNext={onNext}
+      backDisabled={busy}
       nextDisabled={!fixtureMode && (!draft || proofCount < rows.length || busy)}
     >
       {!draft && !fixtureMode ? (
@@ -3924,7 +3932,7 @@ function CurrentBatch({
         </Notice>
       ) : null}
       {busy ? (
-        <Notice tone="info" icon={RefreshCw} title={submitPhaseTitle(submitPhase)}>
+        <Notice tone="info" icon={RefreshCw} iconSpinning announce title={submitPhaseTitle(submitPhase)}>
           {submitPhaseBody(submitPhase)}
         </Notice>
       ) : null}
@@ -4253,8 +4261,10 @@ function ClaimScreenFrame({
   nextLabel,
   nextHint,
   nextIcon: NextIcon = ArrowRight,
+  nextIconSpinning,
   onBack,
   onNext,
+  backDisabled,
   nextDisabled,
 }: {
   title: string;
@@ -4264,8 +4274,10 @@ function ClaimScreenFrame({
   nextLabel: string;
   nextHint?: string;
   nextIcon?: LucideIcon;
+  nextIconSpinning?: boolean;
   onBack: () => void;
   onNext: () => void;
+  backDisabled?: boolean;
   nextDisabled?: boolean;
 }) {
   return (
@@ -4277,7 +4289,7 @@ function ClaimScreenFrame({
       <div className="claim-page-body">{children}</div>
       <footer className="claim-action-bar">
         {backLabel ? (
-          <button className="claim-secondary-button" type="button" onClick={onBack}>
+          <button className="claim-secondary-button" type="button" onClick={onBack} disabled={backDisabled}>
             <ArrowLeft size={21} aria-hidden="true" />
             {backLabel}
           </button>
@@ -4287,7 +4299,7 @@ function ClaimScreenFrame({
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
           {nextHint ? <small className="claim-muted">{nextHint}</small> : null}
           <button className="claim-primary-button" type="button" onClick={onNext} disabled={nextDisabled}>
-            <NextIcon size={24} aria-hidden="true" />
+            <NextIcon className={nextIconSpinning ? "spin" : undefined} size={24} aria-hidden="true" />
             {nextLabel}
           </button>
         </div>
@@ -4307,7 +4319,13 @@ function SummaryTiles({ tiles }: { tiles: SummaryTile[] }) {
 }
 
 function isSubmitBusy(phase?: ClaimSubmitPhase): boolean {
-  return phase === "reconnecting" || phase === "signing-in-wallet" || phase === "submitting" || phase === "submitted-refreshing";
+  return (
+    phase === "building-transaction" ||
+    phase === "reconnecting" ||
+    phase === "signing-in-wallet" ||
+    phase === "submitting" ||
+    phase === "submitted-refreshing"
+  );
 }
 
 function submitButtonLabel({
@@ -4324,6 +4342,8 @@ function submitButtonLabel({
   submitFailureKind?: ClaimSubmitFailureKind | null;
 }): string {
   switch (submitPhase) {
+    case "building-transaction":
+      return "Building transaction";
     case "reconnecting":
       return "Reconnecting safe wallet";
     case "signing-in-wallet":
@@ -4345,6 +4365,8 @@ function submitButtonLabel({
 
 function submitPhaseTitle(phase?: ClaimSubmitPhase): string {
   switch (phase) {
+    case "building-transaction":
+      return "Building transaction";
     case "reconnecting":
       return "Reconnecting safe wallet";
     case "signing-in-wallet":
@@ -4360,6 +4382,8 @@ function submitPhaseTitle(phase?: ClaimSubmitPhase): string {
 
 function submitPhaseBody(phase?: ClaimSubmitPhase): string {
   switch (phase) {
+    case "building-transaction":
+      return "Refreshing current chain data, constructing the reclaim transaction, and measuring its execution budget.";
     case "reconnecting":
       return "Checking that the same safe wallet is live before any signing request is made.";
     case "signing-in-wallet":
@@ -4721,21 +4745,25 @@ function Panel({
 
 function Notice({
   icon: Icon,
+  iconSpinning = false,
+  announce = false,
   title,
   children,
   tone = "info",
 }: {
   icon: LucideIcon;
+  iconSpinning?: boolean;
+  announce?: boolean;
   title?: string;
   children: React.ReactNode;
   tone?: "info" | "bad" | "ok" | "warn";
 }) {
   // A11y (C37): errors are announced assertively, warnings politely.
-  const role = tone === "bad" ? "alert" : tone === "warn" ? "status" : undefined;
+  const role = tone === "bad" ? "alert" : tone === "warn" || announce ? "status" : undefined;
   return (
     <div className={`claim-notice ${tone}`} role={role}>
       <span className="claim-icon-circle">
-        <Icon size={28} aria-hidden="true" />
+        <Icon className={iconSpinning ? "spin" : undefined} size={28} aria-hidden="true" />
       </span>
       <div>
         {title ? <strong>{title}</strong> : null}
