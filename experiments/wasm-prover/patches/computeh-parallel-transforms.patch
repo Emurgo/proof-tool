@@ -1,0 +1,209 @@
+--- vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove.go
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove.go
+@@ -1025,42 +1025,72 @@
+ 	}
+ 	n = len(a)
+ 
+-	domain.FFTInverse(a, fft.DIF)
+-	if yield != nil {
+-		yield()
+-	}
+-	domain.FFTInverse(b, fft.DIF)
+-	if yield != nil {
+-		yield()
++	// opt-W8: when the active engine provides whole-vector H transforms
++	// (dedicated FFT workers), each phase's three independent transforms run
++	// concurrently off the main thread. The workers execute the identical
++	// serial gnark FFT on the same no-precompute domain, so the vectors are
++	// bit-identical to the serial path; the engine falls back to a local
++	// serial transform per vector on any worker failure and never leaves a
++	// vector half-transformed. A phase-level error means the inputs were
++	// rejected before any transform ran, so the serial path below stays safe.
++	hEngine := msmengine.CurrentHTransform()
++
++	if hEngine != nil {
++		if err := hEngine.TransformHVectors([][]fr.Element{a, b, c}, true, false, domain.Cardinality); err != nil {
++			hEngine = nil
++		} else if yield != nil {
++			yield()
++		}
+ 	}
+-	domain.FFTInverse(c, fft.DIF)
+-	if yield != nil {
+-		yield()
++	if hEngine == nil {
++		domain.FFTInverse(a, fft.DIF)
++		if yield != nil {
++			yield()
++		}
++		domain.FFTInverse(b, fft.DIF)
++		if yield != nil {
++			yield()
++		}
++		domain.FFTInverse(c, fft.DIF)
++		if yield != nil {
++			yield()
++		}
+ 	}
+ 
+-	forwardOptions := []fft.Option{fft.OnCoset()}
+ 	var reusableCosetTable []fr.Element
+-	if optW6 {
+-		reusableCosetTable = buildHExpTable(reusableCosetTable, domain.FrMultiplicativeGen, n)
+-		forwardOptions = append(forwardOptions, fft.WithCosetTable(reusableCosetTable))
+-	}
+-	domain.FFT(a, fft.DIT, forwardOptions...)
+-	if yield != nil {
+-		yield()
+-	}
+-	domain.FFT(b, fft.DIT, forwardOptions...)
+-	if yield != nil {
+-		yield()
++	if hEngine != nil {
++		// The FFT workers build their own coset exponent tables, so the main
++		// heap never holds the domain-sized table in this branch.
++		if err := hEngine.TransformHVectors([][]fr.Element{a, b, c}, false, true, domain.Cardinality); err != nil {
++			hEngine = nil
++		} else if yield != nil {
++			yield()
++		}
+ 	}
+-	domain.FFT(c, fft.DIT, forwardOptions...)
+-	if yield != nil {
+-		yield()
++	if hEngine == nil {
++		forwardOptions := []fft.Option{fft.OnCoset()}
++		if optW6 {
++			reusableCosetTable = buildHExpTable(reusableCosetTable, domain.FrMultiplicativeGen, n)
++			forwardOptions = append(forwardOptions, fft.WithCosetTable(reusableCosetTable))
++		}
++		domain.FFT(a, fft.DIT, forwardOptions...)
++		if yield != nil {
++			yield()
++		}
++		domain.FFT(b, fft.DIT, forwardOptions...)
++		if yield != nil {
++			yield()
++		}
++		domain.FFT(c, fft.DIT, forwardOptions...)
++		if yield != nil {
++			yield()
++		}
++		// W6 lifetime boundary: the forward options no longer borrow the table.
++		// Rebuild inverse powers into the same backing array below; allocating a
++		// second domain-sized table made heap_sys grow by one full 128 MiB table at
++		// the production cardinality because nil alone does not force a GC here.
++		forwardOptions = nil
+ 	}
+-	// W6 lifetime boundary: the forward options no longer borrow the table.
+-	// Rebuild inverse powers into the same backing array below; allocating a
+-	// second domain-sized table made heap_sys grow by one full 128 MiB table at
+-	// the production cardinality because nil alone does not force a GC here.
+-	forwardOptions = nil
+ 
+ 	var den, one fr.Element
+ 	one.SetOne()
+@@ -1081,12 +1111,19 @@
+ 	}
+ 
+ 	// ifft_coset
+-	inverseOptions := []fft.Option{fft.OnCoset()}
+-	if optW6 {
+-		reusableCosetTable = buildHExpTable(reusableCosetTable, domain.FrMultiplicativeGenInv, n)
+-		inverseOptions = append(inverseOptions, fft.WithCosetTable(reusableCosetTable))
++	if hEngine != nil {
++		if err := hEngine.TransformHVectors([][]fr.Element{a}, true, true, domain.Cardinality); err != nil {
++			hEngine = nil
++		}
++	}
++	if hEngine == nil {
++		inverseOptions := []fft.Option{fft.OnCoset()}
++		if optW6 {
++			reusableCosetTable = buildHExpTable(reusableCosetTable, domain.FrMultiplicativeGenInv, n)
++			inverseOptions = append(inverseOptions, fft.WithCosetTable(reusableCosetTable))
++		}
++		domain.FFTInverse(a, fft.DIF, inverseOptions...)
+ 	}
+-	domain.FFTInverse(a, fft.DIF, inverseOptions...)
+ 
+ 	return a
+ }
+--- /dev/null
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove_w8_test.go
+@@ -0,0 +1,76 @@
++package groth16
++
++// prove_w8_test.go pins the opt-W8 contract: computeH routed through an
++// HTransformEngine must produce a vector identical to the serial main-thread
++// path, and the engine must be consulted exactly once per transform phase.
++// The stub below transforms with the same gnark FFT calls the real FFT
++// workers run (internal/msmengine hTransformVector), so this is the
++// schedule-level differential; the byte-level worker kernel is pinned by
++// TestHTransformMatchesSerialFFT in internal/msmengine.
++
++import (
++	"testing"
++
++	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
++	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr/fft"
++
++	"proof-tool/experiments/wasm-prover/msmengine"
++)
++
++type hTransformStub struct {
++	msmengine.MSMEngine
++	calls int
++}
++
++func (s *hTransformStub) HTransformEnabled() bool { return true }
++
++func (s *hTransformStub) TransformHVectors(vecs [][]fr.Element, inverse, coset bool, cardinality uint64) error {
++	s.calls++
++	domain := fft.NewDomain(cardinality, fft.WithoutPrecompute())
++	opts := []fft.Option{fft.WithNbTasks(1)}
++	if coset {
++		table := make([]fr.Element, cardinality)
++		if inverse {
++			fft.BuildExpTable(domain.FrMultiplicativeGenInv, table)
++		} else {
++			fft.BuildExpTable(domain.FrMultiplicativeGen, table)
++		}
++		opts = append(opts, fft.OnCoset(), fft.WithCosetTable(table))
++	}
++	for _, vec := range vecs {
++		if inverse {
++			domain.FFTInverse(vec, fft.DIF, opts...)
++		} else {
++			domain.FFT(vec, fft.DIT, opts...)
++		}
++	}
++	return nil
++}
++
++func TestComputeHW8EngineMatchesSerial(t *testing.T) {
++	const size = 13
++	aSerial, bSerial, cSerial := fixedComputeHWitness(size)
++	domainSerial := fft.NewDomain(16, fft.WithoutPrecompute())
++	want := computeHWithRuntime(aSerial, bSerial, cSerial, domainSerial, nil, true)
++
++	stub := &hTransformStub{}
++	previous := msmengine.Current()
++	msmengine.SetCurrent(stub)
++	defer msmengine.SetCurrent(previous)
++
++	aW8, bW8, cW8 := fixedComputeHWitness(size)
++	domainW8 := fft.NewDomain(16, fft.WithoutPrecompute())
++	yields := 0
++	got := computeHWithRuntime(aW8, bW8, cW8, domainW8, func() { yields++ }, true)
++
++	if stub.calls != 3 {
++		t.Fatalf("HTransformEngine consulted %d times, want 3 (iFFT, coset FFT, final coset iFFT)", stub.calls)
++	}
++	// The engine path yields once per offloaded input phase plus once after
++	// the pointwise product; the blocking channel receives inside the real
++	// engine pump the event loop on wasm, so per-vector yields are not needed.
++	if yields != 3 {
++		t.Fatalf("engine path yielded %d times, want 3", yields)
++	}
++	assertElementVectorsEqual(t, want, got)
++}

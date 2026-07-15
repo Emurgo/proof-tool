@@ -212,6 +212,36 @@ type InstrumentedEngine interface {
 	Instrumentation() map[string]any
 }
 
+// HTransformEngine runs computeH's whole-vector domain transforms off the
+// main thread (opt-W8). Implementations MUST be bit-identical to gnark's
+// serial FFT on the same no-precompute domain: inverse transforms are
+// DIF-decimated, forward transforms DIT-decimated, matching computeH's fixed
+// schedule. Vectors are transformed in place and are never left half-done —
+// the engine falls back to the identical local serial transform per vector
+// on any worker failure.
+type HTransformEngine interface {
+	TransformHVectors(vecs [][]fr.Element, inverse, coset bool, cardinality uint64) error
+}
+
+// CurrentHTransform returns the active engine's H-transform capability, or
+// nil when the engine does not provide one (CPU path, opt-W8 off, or a pool
+// too small to spare dedicated FFT workers). The vendored prove fork calls
+// this from computeH and keeps its serial path when nil.
+func CurrentHTransform() HTransformEngine {
+	type hfftGated interface {
+		HTransformEnabled() bool
+	}
+	e := Current()
+	ht, ok := e.(HTransformEngine)
+	if !ok {
+		return nil
+	}
+	if gated, ok := e.(hfftGated); ok && !gated.HTransformEnabled() {
+		return nil
+	}
+	return ht
+}
+
 // currentMu guards current so that concurrent reads (prover goroutines calling
 // Current()) and writes (tests or runtime calling SetCurrent()) are data-race
 // free. On single-threaded wasm the locking is a no-op; on native targets it

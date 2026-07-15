@@ -28,8 +28,22 @@ type SectionHandle = msmengine.SectionHandle
 
 type AsyncPKSectionEngine = msmengine.AsyncPKSectionEngine
 
+// MSMEngine aliases the moved interface for vendored test doubles.
+type MSMEngine = msmengine.MSMEngine
+
 // Current forwards to the moved package's engine selection state.
 func Current() msmengine.MSMEngine { return msmengine.Current() }
+
+// SetCurrent forwards engine installation; exported for the vendored
+// prove_w8_test differential, which swaps in an HTransformEngine stub.
+func SetCurrent(e msmengine.MSMEngine) { msmengine.SetCurrent(e) }
+
+// HTransformEngine aliases the opt-W8 computeH transform capability.
+type HTransformEngine = msmengine.HTransformEngine
+
+// CurrentHTransform forwards to the moved package; nil means the vendored
+// computeH keeps its serial main-thread path.
+func CurrentHTransform() msmengine.HTransformEngine { return msmengine.CurrentHTransform() }
 
 // TraceStage forwards to the moved package's trace hook.
 func TraceStage(stage string, fields map[string]any) func(map[string]any) {

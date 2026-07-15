@@ -24,6 +24,7 @@ type Options struct {
 	WorkerURL             string
 	PinnedDecode          bool
 	OptW7                 bool
+	OptW8                 bool
 }
 
 // Select returns the highest-available MSMEngine given capability probe p.

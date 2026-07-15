@@ -134,6 +134,7 @@ func RegisterWorkerKernel() {
 		}
 		return ""
 	}))
+	registerHFFTKernel(g)
 	g.Set("__msmengineCombineG1", js.FuncOf(func(this js.Value, args []js.Value) any {
 		arr := args[0]
 		parts := make([]bls12381.G1Jac, arr.Length())
@@ -454,6 +455,9 @@ type shardedMSM struct {
 	pool                  *workerPool
 	asyncMu               sync.Mutex
 	async                 *sectionScheduler
+	// hfft is the dedicated computeH FFT worker pool (opt-W8); nil when the
+	// option is off. Workers spawn lazily on the first TransformHVectors.
+	hfft *hfftPool
 }
 
 // NewSharded constructs a shardedMSM with up to `cap` workers (clamped to
@@ -506,7 +510,22 @@ func NewShardedWithOptions(workerURL string, cap int, opts Options) (*shardedMSM
 		}
 		pool.workers = append(pool.workers, w)
 	}
-	return &shardedMSM{workers: n, shards: shards, rangeFetchConcurrency: concurrency, chunkPrefetchWindow: prefetchWindow, pinnedDecode: opts.PinnedDecode, optW7: opts.OptW7, pool: pool}, nil
+	s := &shardedMSM{workers: n, shards: shards, rangeFetchConcurrency: concurrency, chunkPrefetchWindow: prefetchWindow, pinnedDecode: opts.PinnedDecode, optW7: opts.OptW7, pool: pool}
+	// Gate opt-W8 on a pool of at least 8 MSM workers: on small hosts the
+	// dedicated FFT workers would oversubscribe the cores the MSM shards
+	// need, while the main-thread FFT there is effectively free parallelism.
+	if opts.OptW8 && n >= hfftMinMSMWorkers {
+		s.hfft = newHFFTPool(workerURL)
+		// Pre-spawn so the workers' wasm compile/instantiate overlaps the
+		// proof head (open-ccs, solve) instead of the first computeH phase.
+		// ensureSpawned is idempotent; TransformHVectors re-checks it.
+		go func(p *hfftPool) {
+			if err := p.ensureSpawned(); err != nil {
+				EmitTrace("measure", "hfft-fallback", map[string]any{"error": err.Error(), "at": "prespawn"})
+			}
+		}(s.hfft)
+	}
+	return s, nil
 }
 
 // newWorker spawns one Web Worker from workerURL and wires its onmessage/onerror
@@ -615,21 +634,15 @@ func (s *shardedMSM) Close() error {
 	if s.pool != nil {
 		s.pool.close()
 	}
+	if s.hfft != nil {
+		s.hfft.close()
+	}
 	return nil
 }
 
 func (p *workerPool) close() {
 	p.closeOnce.Do(func() {
-		for _, w := range p.workers {
-			if w == nil {
-				continue
-			}
-			if !w.js.IsUndefined() {
-				w.js.Call("terminate")
-			}
-			w.onMsg.Release()
-			w.onErr.Release()
-		}
+		terminateWorkers(p.workers)
 	})
 }
 

@@ -42,6 +42,7 @@ experiments/wasm-prover/cmd/*
 !experiments/wasm-prover/cmd/pkindex/
 !experiments/wasm-prover/cmd/zk02vectors/
 !experiments/wasm-prover/optimization-backlog.md
+!experiments/wasm-prover/browser-proving-efficiency-plan.md
 !experiments/wasm-prover/output/
 !experiments/wasm-prover/msmengine
 !experiments/wasm-prover/patches
@@ -61,6 +62,7 @@ experiments/wasm-prover/patches/*
 !experiments/wasm-prover/patches/dispatch-before-fft.patch
 !experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
 !experiments/wasm-prover/patches/uints-constant-fold.patch
+!experiments/wasm-prover/patches/computeh-parallel-transforms.patch
 !experiments/wasm-prover/runtime/**
 !experiments/wasm-prover/fault/**
 !experiments/wasm-prover/scripts/**
