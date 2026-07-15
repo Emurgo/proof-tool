@@ -1845,7 +1845,9 @@ describe("ClaimFlow", () => {
     expect(workerFactory).not.toHaveBeenCalled();
   });
 
-  it("proves through the currently published helper using its exact legacy preflight response", async () => {
+  it("proves through the currently published helper when loopback permission is granted", async () => {
+    const permissionQuery = vi.fn(async () => ({ state: "granted" as PermissionState }));
+    vi.stubGlobal("navigator", { permissions: { query: permissionQuery } });
     window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
     installWallets({
       impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
@@ -1872,8 +1874,35 @@ describe("ClaimFlow", () => {
     const helperCalls = fetch.mock.calls.filter(([url]) => String(url).endsWith("/prove-destination"));
     expect(helperCalls).toHaveLength(2);
     expect(JSON.parse(String(helperCalls[0]?.[1]?.body))).toEqual({ preflight_only: true });
+    expect(permissionQuery).toHaveBeenCalledWith({ name: "loopback-network" });
     expect(workerFactory).toHaveBeenCalledOnce();
     expect(recoveryInputs.every((input) => input.value === "")).toBe(true);
+  });
+
+  it("blocks denied loopback permission before reading or clearing the recovery phrase", async () => {
+    const permissionQuery = vi.fn(async () => ({ state: "denied" as PermissionState }));
+    vi.stubGlobal("navigator", { permissions: { query: permissionQuery } });
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const fetch = claimFlowFetch({ draft: claimDraft([`${"a".repeat(64)}#0`]) });
+    vi.stubGlobal("fetch", fetch);
+    const workerFactory = vi.fn(createWorkerSuccess());
+
+    render(<ClaimFlow createWorker={workerFactory} />);
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+    const recoveryInputs = fillRecoveryPhraseInputs();
+    fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
+
+    expect(await screen.findByText(/Local device access is blocked/i)).toBeInTheDocument();
+    expect(permissionQuery).toHaveBeenCalledWith({ name: "loopback-network" });
+    expect(recoveryInputs.every((input) => input.value.length > 0)).toBe(true);
+    expect(workerFactory).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/status"))).toBe(false);
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/prove-destination"))).toBe(false);
   });
 
   it("explains that the phrase was cleared after a proof failure and disables Retry until re-entry", async () => {
