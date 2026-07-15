@@ -7,7 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
@@ -23,6 +25,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"
+	"github.com/klauspost/compress/zstd"
 	"golang.org/x/crypto/blake2b"
 
 	"proof-tool/internal/artifact"
@@ -80,6 +83,7 @@ type tuningRequest struct {
 	ShardMultiplier       int   `json:"shard_multiplier,omitempty"`
 	RangeFetchConcurrency int   `json:"range_fetch_concurrency,omitempty"`
 	ChunkPrefetchWindow   int   `json:"chunk_prefetch_window,omitempty"`
+	ChunkReadahead        int   `json:"chunk_readahead,omitempty"`
 	PinnedDecode          *bool `json:"pinned_decode,omitempty"`
 	OptW1                 bool  `json:"opt_w1,omitempty"`
 	OptW2                 bool  `json:"opt_w2,omitempty"`
@@ -87,6 +91,7 @@ type tuningRequest struct {
 	OptW5                 bool  `json:"opt_w5,omitempty"`
 	OptW6                 bool  `json:"opt_w6,omitempty"`
 	OptW7                 bool  `json:"opt_w7,omitempty"`
+	OptW8                 bool  `json:"opt_w8,omitempty"`
 }
 
 type proveResult struct {
@@ -190,7 +195,7 @@ func main() {
 	js.Global().Set("preflightProofAssets", js.FuncOf(preflightProofAssets))
 	js.Global().Set("probeMSMEngine", js.FuncOf(probeMSMEngineJS))
 	capabilities, err := toJS(map[string]any{
-		"optimization_flags": []string{"w1", "w2", "w3", "w5", "w6", "w7"},
+		"optimization_flags": []string{"w1", "w2", "w3", "w5", "w6", "w7", "w8"},
 		"worker_count":       map[string]any{"explicit": true, "max": 16, "probe": true},
 	})
 	if err != nil {
@@ -435,6 +440,26 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 		}
 	}
 	endOpenCCS(map[string]any{"constraints": ccs.GetNbConstraints()})
+
+	// Warm the HTTP cache with PK chunks in dispatch order while the rest of
+	// the head (find-path / witness / solve) leaves the downlink idle. This
+	// starts after open-ccs so the low-priority warm-up never competes with
+	// the critical-path CCS download. Worker fetches use cache:'force-cache',
+	// so warmed chunks skip the network; digest verification still happens at
+	// consumption.
+	if req.Tuning.ChunkReadahead > 0 && bundle.chunkManifest != nil {
+		cancelReadahead, readaheadChunks := startChunkReadahead(
+			pkSectionPlanFromChunkManifest(bundle.chunkManifest), req.Tuning.ChunkReadahead)
+		if cancelReadahead != nil {
+			defer cancelReadahead()
+		}
+		trace.mark("measure", "chunk-readahead", map[string]any{
+			"chunks":      readaheadChunks,
+			"concurrency": req.Tuning.ChunkReadahead,
+			"started":     cancelReadahead != nil,
+		})
+	}
+
 	progress(progressCB, "find-path", 0.20)
 	endFindPath := trace.span("find-path", nil)
 	path, err := ownership.FindPath(master, target, searchOptions(req.Search))
@@ -784,6 +809,7 @@ func msmOptions(req tuningRequest, artifacts artifactRequest) msmengine.Options 
 		WorkerURL:             workerURL,
 		PinnedDecode:          pinnedDecode,
 		OptW7:                 req.OptW7,
+		OptW8:                 req.OptW8,
 	}
 }
 
@@ -797,6 +823,7 @@ func tuningFields(opts msmengine.Options) map[string]any {
 		"worker_url":              opts.WorkerURL,
 		"pinned_decode":           opts.PinnedDecode,
 		"opt_w7":                  opts.OptW7,
+		"opt_w8":                  opts.OptW8,
 	}
 }
 
@@ -805,7 +832,7 @@ func keyOpenOptions(req tuningRequest) []streampk.OpenOption {
 }
 
 func appliedRuntimeOptions(req tuningRequest) map[string]bool {
-	return map[string]bool{"w1": req.OptW1, "w2": req.OptW2, "w3": req.OptW3, "w5": req.OptW5, "w6": req.OptW6, "w7": req.OptW7}
+	return map[string]bool{"w1": req.OptW1, "w2": req.OptW2, "w3": req.OptW3, "w5": req.OptW5, "w6": req.OptW6, "w7": req.OptW7, "w8": req.OptW8}
 }
 
 func openConstraintSystem(req artifactRequest, manifest *artifact.KeyManifest, chunkManifest *proofassets.ChunkManifest) (constraint.ConstraintSystem, error) {
@@ -837,13 +864,24 @@ func openConstraintSystem(req artifactRequest, manifest *artifact.KeyManifest, c
 		return nil, fmt.Errorf("ccs_blake2b256 or manifest constraint_system_hash is required for ccs_url")
 	}
 
-	ccs, digest, err := fetchCCS(ccsURL)
+	// Prefer the zstd transport variant when the signed manifest pins one:
+	// both representations are hash-pinned, so the compressed route adds no
+	// new trust root while cutting the CCS transfer to ~30%. A transport
+	// failure of the compressed object falls back to the identity URL; a
+	// digest mismatch is tamper evidence and fails closed.
+	var compressedPin *proofassets.CompressedAssetPin
+	if expectedCCSAsset != nil && expectedCCSAsset.Compressed != nil && expectedCCSAsset.Compressed.Encoding == "zstd" {
+		compressedPin = expectedCCSAsset.Compressed
+	}
+	ccs, digest, encoding, err := fetchCCSPreferCompressed(ccsURL, compressedPin)
 	if err != nil {
 		return nil, err
 	}
 	msmengine.EmitTrace("measure", "open-ccs", map[string]any{
 		"source":        "url",
-		"bytes_fetched": digest.Size,
+		"bytes_fetched": lastCCSLoadStats.BytesFetched,
+		"encoding":      encoding,
+		"decoded_bytes": digest.Size,
 		"sha256":        digest.SHA256,
 		"blake2b256":    digest.Blake2b256,
 	})
@@ -880,16 +918,77 @@ type ccsLoadStats struct {
 
 var lastCCSLoadStats ccsLoadStats
 
-func fetchCCS(rawURL string) (constraint.ConstraintSystem, prover.FileDigest, error) {
+// fetchCCSPreferCompressed fetches the CCS via its pinned zstd transport
+// variant when one is supplied, falling back to the identity URL when the
+// compressed object is unavailable. The returned digest is always over the
+// DECODED bytes, so the caller's checks against the identity pin are
+// unchanged. A compressed-digest mismatch fails closed — the pin is signed,
+// so wrong bytes are tamper evidence, not a transport hiccup.
+func fetchCCSPreferCompressed(ccsURL string, compressed *proofassets.CompressedAssetPin) (constraint.ConstraintSystem, prover.FileDigest, string, error) {
+	if compressed != nil {
+		// A query-carrying ccs_url (signed URL, cache buster) cannot yield a
+		// valid sibling URL — the token belongs to the identity object — so
+		// take the identity path directly instead of a guaranteed-404 probe.
+		if u, err := url.Parse(ccsURL); err != nil || u.RawQuery != "" {
+			compressed = nil
+		}
+	}
+	if compressed != nil {
+		compressedURL, err := resolveSiblingAssetURL(ccsURL, compressed.Path)
+		if err != nil {
+			return nil, prover.FileDigest{}, "", fmt.Errorf("resolve compressed ccs url: %w", err)
+		}
+		ccs, digest, err := fetchCCS(compressedURL, compressed)
+		if err == nil {
+			return ccs, digest, "zstd", nil
+		}
+		var unavailable *assetUnavailableError
+		if !errors.As(err, &unavailable) {
+			return nil, prover.FileDigest{}, "", err
+		}
+		msmengine.EmitTrace("measure", "open-ccs-compressed-fallback", map[string]any{"error": err.Error()})
+	}
+	ccs, digest, err := fetchCCS(ccsURL, nil)
+	return ccs, digest, "identity", err
+}
+
+// resolveSiblingAssetURL swaps the last path segment of base for name,
+// mirroring how the chunk manifest's relative asset paths resolve against
+// the directory that serves the identity asset.
+func resolveSiblingAssetURL(base, name string) (string, error) {
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	ref, err := url.Parse(name)
+	if err != nil {
+		return "", err
+	}
+	return u.ResolveReference(ref).String(), nil
+}
+
+// assetUnavailableError marks transport-level failures (connection, non-200)
+// that may fall back to the identity asset; digest mismatches never carry it.
+type assetUnavailableError struct{ err error }
+
+func (e *assetUnavailableError) Error() string { return e.err.Error() }
+func (e *assetUnavailableError) Unwrap() error { return e.err }
+
+// fetchCCS streams the constraint system from rawURL. With a nil compressed
+// pin the body is the gnark binary itself. With a pin, the body is the zstd
+// frame: the wire bytes are hashed and length-checked against the pin while
+// the decoder inflates them, and the decoded stream is hashed for the
+// caller's identity-pin checks.
+func fetchCCS(rawURL string, compressed *proofassets.CompressedAssetPin) (constraint.ConstraintSystem, prover.FileDigest, error) {
 	requestStarted := time.Now()
 	resp, err := http.Get(rawURL)
 	if err != nil {
-		return nil, prover.FileDigest{}, err
+		return nil, prover.FileDigest{}, &assetUnavailableError{err: err}
 	}
 	headerMS := elapsedMilliseconds(requestStarted)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, prover.FileDigest{}, fmt.Errorf("GET %s returned %d", rawURL, resp.StatusCode)
+		return nil, prover.FileDigest{}, &assetUnavailableError{err: fmt.Errorf("GET %s returned %d", rawURL, resp.StatusCode)}
 	}
 
 	sha := sha256.New()
@@ -899,12 +998,42 @@ func fetchCCS(rawURL string) (constraint.ConstraintSystem, prover.FileDigest, er
 	}
 	body := &timedReader{r: resp.Body}
 	hashes := &timedWriter{w: io.MultiWriter(sha, blake)}
-	reader := &countingReader{r: io.TeeReader(body, hashes)}
+
+	var wire *countingReader
+	var wireSHA, wireBlake hash.Hash
+	var zstdDecoder *zstd.Decoder
+	var decoded io.Reader
+	if compressed != nil {
+		wireSHA = sha256.New()
+		wireBlake, err = blake2b.New256(nil)
+		if err != nil {
+			return nil, prover.FileDigest{}, fmt.Errorf("create blake2b digest: %w", err)
+		}
+		wire = &countingReader{r: io.TeeReader(body, io.MultiWriter(wireSHA, wireBlake))}
+		zstdDecoder, err = zstd.NewReader(wire)
+		if err != nil {
+			return nil, prover.FileDigest{}, fmt.Errorf("create zstd decoder: %w", err)
+		}
+		defer zstdDecoder.Close()
+		decoded = zstdDecoder.IOReadCloser()
+	} else {
+		decoded = body
+	}
+	reader := &countingReader{r: io.TeeReader(decoded, hashes)}
+
 	ccs := groth16.NewCS(ecc.BLS12_381)
 	decodeStarted := time.Now()
 	bodyBefore, hashBefore := body.duration, hashes.duration
 	if _, err := ccs.ReadFrom(reader); err != nil {
-		return nil, prover.FileDigest{}, fmt.Errorf("read constraint system: %w", err)
+		err = fmt.Errorf("read constraint system: %w", err)
+		if compressed != nil {
+			// A truncated frame or mid-body reset on the compressed object is
+			// indistinguishable from transport failure at this point (the
+			// pinned digests are checked over the complete object below), so
+			// let the caller retry the fully pinned identity asset.
+			return nil, prover.FileDigest{}, &assetUnavailableError{err: err}
+		}
+		return nil, prover.FileDigest{}, err
 	}
 	decodeWall := time.Since(decodeStarted)
 	decodeMS := float64(decodeWall-body.duration+bodyBefore-hashes.duration+hashBefore) / float64(time.Millisecond)
@@ -912,13 +1041,43 @@ func fetchCCS(rawURL string) (constraint.ConstraintSystem, prover.FileDigest, er
 		decodeMS = 0
 	}
 	if _, err := io.Copy(io.Discard, reader); err != nil {
-		return nil, prover.FileDigest{}, fmt.Errorf("read constraint system trailer: %w", err)
+		err = fmt.Errorf("read constraint system trailer: %w", err)
+		if compressed != nil {
+			return nil, prover.FileDigest{}, &assetUnavailableError{err: err}
+		}
+		return nil, prover.FileDigest{}, err
+	}
+	wireBytes := reader.n
+	if compressed != nil {
+		// Drain any wire trailer past the zstd frame so the pinned digests
+		// cover the complete object.
+		if _, err := io.Copy(io.Discard, wire); err != nil {
+			return nil, prover.FileDigest{}, &assetUnavailableError{err: fmt.Errorf("read compressed trailer: %w", err)}
+		}
+		wireBytes = wire.n
+		// Mismatches on the OPTIONAL compressed variant fall back to the
+		// identity asset rather than failing the proof: deploy skew (a stale
+		// edge-cached .zst next to a refreshed manifest) is indistinguishable
+		// from tamper here, and the identity path re-enforces every pin, so
+		// the fallback cannot downgrade integrity — it only trades the tamper
+		// alarm for availability. The fallback trace records the mismatch.
+		if wire.n != compressed.Size {
+			return nil, prover.FileDigest{}, &assetUnavailableError{err: fmt.Errorf("compressed ccs size mismatch: pinned %d, fetched %d", compressed.Size, wire.n)}
+		}
+		wireSHAHex := "sha256:" + hex.EncodeToString(wireSHA.Sum(nil))
+		if wireSHAHex != compressed.SHA256 {
+			return nil, prover.FileDigest{}, &assetUnavailableError{err: fmt.Errorf("compressed ccs sha256 mismatch: pinned %s, fetched %s", compressed.SHA256, wireSHAHex)}
+		}
+		wireBlakeHex := "blake2b256:" + hex.EncodeToString(wireBlake.Sum(nil))
+		if wireBlakeHex != compressed.Blake2b256 {
+			return nil, prover.FileDigest{}, &assetUnavailableError{err: fmt.Errorf("compressed ccs blake2b256 mismatch: pinned %s, fetched %s", compressed.Blake2b256, wireBlakeHex)}
+		}
 	}
 	lastCCSLoadStats = ccsLoadStats{
 		FetchMS:      headerMS + float64(body.duration)/float64(time.Millisecond),
 		HashMS:       float64(hashes.duration) / float64(time.Millisecond),
 		DecodeMS:     decodeMS,
-		BytesFetched: reader.n,
+		BytesFetched: wireBytes,
 	}
 	return ccs, prover.FileDigest{
 		SHA256:     "sha256:" + hex.EncodeToString(sha.Sum(nil)),

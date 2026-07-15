@@ -1,5 +1,29 @@
 const $ = (id) => document.getElementById(id);
 
+// __proofChunkReadahead — same contract as prover-worker.js: the Go
+// orchestrator calls this after the signed chunk manifest verifies to warm
+// the HTTP cache with PK chunks in dispatch order (low-priority fetches,
+// bodies discarded; integrity enforced at consumption).
+globalThis.__proofChunkReadahead = (urls, concurrency) => {
+  let cancelled = false;
+  let next = 0;
+  const runner = async () => {
+    while (!cancelled && next < urls.length) {
+      const url = urls[next];
+      next += 1;
+      try {
+        const resp = await fetch(url, { cache: 'force-cache', priority: 'low' });
+        if (resp.ok) await resp.arrayBuffer();
+      } catch {
+        // Best-effort warm-up; the worker pays the network cost later instead.
+      }
+    }
+  };
+  const lanes = Math.max(1, Math.min(4, concurrency | 0));
+  for (let i = 0; i < lanes; i += 1) runner();
+  return { cancel: () => { cancelled = true; } };
+};
+
 const defaultRequest = {
   ...structuredClone(globalThis.__benchmarkPrivateRequest || {}),
   artifacts: {

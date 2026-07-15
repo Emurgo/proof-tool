@@ -1076,6 +1076,20 @@ function browserProvingTuningField(
     }
     tuning[key] = positiveIntegerField(root[key], `${field}.${key}`, errors);
   }
+  // chunk_readahead admits 0: it is the documented off switch for the
+  // default-on readahead, and the manifest is the only remote tuning channel.
+  if (root.chunk_readahead !== undefined) {
+    const value = root.chunk_readahead;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      errors.push({
+        code: "invalid_type",
+        field: field + ".chunk_readahead",
+        message: field + ".chunk_readahead must be a non-negative integer.",
+      });
+    } else {
+      tuning.chunk_readahead = value;
+    }
+  }
   if (
     tuning.chunk_prefetch_window !== undefined &&
     tuning.chunk_prefetch_window > 4
@@ -1086,11 +1100,32 @@ function browserProvingTuningField(
       message: field + ".chunk_prefetch_window must be at most 4.",
     });
   }
+  if (tuning.chunk_readahead !== undefined && tuning.chunk_readahead > 4) {
+    errors.push({
+      code: "invalid_value",
+      field: field + ".chunk_readahead",
+      message: field + ".chunk_readahead must be at most 4.",
+    });
+  }
   if (root.pinned_decode !== undefined) {
     if (typeof root.pinned_decode !== "boolean") {
       errors.push({ code: "invalid_type", field: `${field}.pinned_decode`, message: `${field}.pinned_decode must be a boolean.` });
     } else {
       tuning.pinned_decode = root.pinned_decode;
+    }
+  }
+  // The opt_w* switches are part of BrowserProvingTuning and the deployment
+  // manifest is the only remote tuning channel; without parsing them here a
+  // default-on optimization (e.g. opt_w8) could not be disabled without a
+  // webapp redeploy.
+  for (const key of ["opt_w1", "opt_w2", "opt_w3", "opt_w5", "opt_w6", "opt_w7", "opt_w8"] as const) {
+    if (root[key] === undefined) {
+      continue;
+    }
+    if (typeof root[key] !== "boolean") {
+      errors.push({ code: "invalid_type", field: `${field}.${key}`, message: `${field}.${key} must be a boolean.` });
+    } else {
+      tuning[key] = root[key];
     }
   }
   if (root.gomemlimit !== undefined) {

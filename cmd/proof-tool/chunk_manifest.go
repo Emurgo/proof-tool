@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"golang.org/x/crypto/blake2b"
 
 	"proof-tool/internal/proofassets"
@@ -42,6 +44,7 @@ func cmdGenerateChunkManifest(args []string) error {
 	release := fs.String("release", "", "release identifier written into the chunk manifest")
 	profile := fs.String("profile", "mainnet-single-destination", "proof asset profile written into the chunk manifest")
 	ccsPath := fs.String("ccs-path", "", "serialized ownership-destination CCS path to copy and pin")
+	compressCCS := fs.Bool("compress-ccs", false, "also emit ownership-destination.ccs.zst and pin it as the CCS's compressed transport variant")
 	proofWASMPath := fs.String("proof-wasm-path", "", "proof-destination.wasm path to copy and pin")
 	workerJSPath := fs.String("worker-js-path", "", "worker.js path to copy and pin")
 	msmWorkerWASMPath := fs.String("msm-worker-wasm-path", "", "msmworker.wasm path to copy and pin")
@@ -164,6 +167,17 @@ func cmdGenerateChunkManifest(args []string) error {
 	if err != nil {
 		return err
 	}
+	var ccsCompressedPin *proofassets.CompressedAssetPin
+	if *compressCCS {
+		ccsCompressedPin, err = writeCompressedAsset(
+			filepath.Join(*outDir, "ownership-destination.ccs"),
+			filepath.Join(*outDir, "ownership-destination.ccs.zst"),
+			"ownership-destination.ccs.zst",
+		)
+		if err != nil {
+			return err
+		}
+	}
 	proofWASMDigest, err := proofassets.DigestFile(filepath.Join(*outDir, "proof-destination.wasm"))
 	if err != nil {
 		return err
@@ -203,6 +217,7 @@ func cmdGenerateChunkManifest(args []string) error {
 				Size:       ccsDigest.Size,
 				SHA256:     ccsDigest.SHA256,
 				Blake2b256: ccsDigest.Blake2b256,
+				Compressed: ccsCompressedPin,
 			},
 			"proof-destination.wasm": {
 				Path:       "proof-destination.wasm",
@@ -278,6 +293,56 @@ func cmdGenerateChunkManifest(args []string) error {
 	fmt.Printf("deployment_id: %s\n", manifest.Coherence.DeploymentID)
 	fmt.Printf("cardano_vk_blake2b256: %s\n", manifest.Coherence.CardanoVKBlake2b256)
 	return nil
+}
+
+// writeCompressedAsset writes the zstd-compressed transport variant of an
+// asset and returns its pin. Compression uses the best level: the output is a
+// write-once CDN object, so encode time is irrelevant next to transfer savings.
+// The function round-trips the compressed bytes through a decoder before
+// pinning so a corrupt encode can never reach a signed manifest.
+func writeCompressedAsset(srcPath, dstPath, pinPath string) (*proofassets.CompressedAssetPin, error) {
+	raw, err := os.ReadFile(srcPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s for compression: %w", srcPath, err)
+	}
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+	if err != nil {
+		return nil, fmt.Errorf("create zstd encoder: %w", err)
+	}
+	compressed := enc.EncodeAll(raw, nil)
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("close zstd encoder: %w", err)
+	}
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create zstd decoder: %w", err)
+	}
+	defer dec.Close()
+	roundTrip, err := dec.DecodeAll(compressed, nil)
+	if err != nil {
+		return nil, fmt.Errorf("round-trip decode %s: %w", pinPath, err)
+	}
+	if !bytes.Equal(roundTrip, raw) {
+		return nil, fmt.Errorf("round-trip decode of %s does not match the source bytes", pinPath)
+	}
+	if err := os.WriteFile(dstPath, compressed, 0o600); err != nil {
+		return nil, fmt.Errorf("write %s: %w", dstPath, err)
+	}
+	// Digest the verified in-memory bytes, not the filesystem copy: no
+	// re-read, and a torn write cannot slip its bytes into a signed pin.
+	digest, err := proofassets.DigestBytes(compressed)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("compressed %s: %d -> %d bytes (%.1f%%)\n",
+		filepath.Base(srcPath), len(raw), len(compressed), float64(len(compressed))/float64(len(raw))*100)
+	return &proofassets.CompressedAssetPin{
+		Path:       pinPath,
+		Encoding:   "zstd",
+		Size:       digest.Size,
+		SHA256:     digest.SHA256,
+		Blake2b256: digest.Blake2b256,
+	}, nil
 }
 
 func readRequiredEd25519SigningKey(path string) (ed25519.PrivateKey, ed25519.PublicKey, error) {

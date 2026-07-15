@@ -46,6 +46,35 @@ async function compileMSMWorkerModule(url) {
   return await WebAssembly.compile(await (await fetch(url)).arrayBuffer());
 }
 
+// __proofChunkReadahead(urls, concurrency) — called by the Go orchestrator
+// after the signed chunk manifest is verified. Warms the HTTP cache with the
+// proving-key chunks in dispatch order so the MSM workers' later
+// cache:'force-cache' fetches skip the network. Bodies are read (a response
+// must complete to be committed to the cache) and discarded; integrity is
+// enforced by the workers' digest checks at consumption time. Fetches are
+// low-priority so an in-flight readahead never starves a worker's needed-now
+// chunk on the shared connection.
+self.__proofChunkReadahead = (urls, concurrency) => {
+  let cancelled = false;
+  let next = 0;
+  const runner = async () => {
+    while (!cancelled && next < urls.length) {
+      const url = urls[next];
+      next += 1;
+      try {
+        const resp = await fetch(url, { cache: 'force-cache', priority: 'low' });
+        if (resp.ok) await resp.arrayBuffer();
+      } catch {
+        // Readahead is best-effort: a failed warm-up fetch just means the
+        // worker pays the network cost later, exactly as without readahead.
+      }
+    }
+  };
+  const lanes = Math.max(1, Math.min(4, concurrency | 0));
+  for (let i = 0; i < lanes; i += 1) runner();
+  return { cancel: () => { cancelled = true; } };
+};
+
 function installMSMWorkerInitializer(wasmURL) {
   self.__initializeMSMWorker = (worker) => {
     const init = { type: 'init', wasmURL };

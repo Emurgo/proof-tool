@@ -104,6 +104,25 @@ type AssetPin struct {
 	Size       int64  `json:"size"`
 	SHA256     string `json:"sha256"`
 	Blake2b256 string `json:"blake2b256"`
+	// Compressed optionally pins a compressed transport variant of the same
+	// asset. Clients that understand the encoding fetch the compressed path,
+	// verify the compressed digests, decompress, and then verify the decoded
+	// bytes against the parent pin — both representations are hash-pinned, so
+	// the compressed route adds no new trust root. Older clients ignore this
+	// field and fetch the identity path.
+	Compressed *CompressedAssetPin `json:"compressed,omitempty"`
+}
+
+// CompressedAssetPin pins the compressed transport encoding of an asset.
+// Encoding is applied at the application layer (the CDN serves the bytes with
+// Content-Encoding: identity, which the workers require); "zstd" is the only
+// supported value.
+type CompressedAssetPin struct {
+	Path       string `json:"path"`
+	Encoding   string `json:"encoding"`
+	Size       int64  `json:"size"`
+	SHA256     string `json:"sha256"`
+	Blake2b256 string `json:"blake2b256"`
 }
 
 type ReclaimDeploymentManifest struct {
@@ -718,6 +737,30 @@ func validateAssetPin(name string, pin AssetPin) error {
 	}
 	if err := validateDigest("blake2b256", pin.Blake2b256); err != nil {
 		return fmt.Errorf("asset %s blake2b256: %w", name, err)
+	}
+	if pin.Compressed != nil {
+		c := pin.Compressed
+		if c.Encoding != "zstd" {
+			return fmt.Errorf("asset %s compressed encoding %q is not supported (want \"zstd\")", name, c.Encoding)
+		}
+		if err := safeRelativePath(c.Path); err != nil {
+			return fmt.Errorf("asset %s compressed path: %w", name, err)
+		}
+		if c.Path == pin.Path {
+			return fmt.Errorf("asset %s compressed path must differ from the identity path %q", name, pin.Path)
+		}
+		if c.Size <= 0 {
+			return fmt.Errorf("asset %s compressed size must be positive", name)
+		}
+		if c.Size >= pin.Size {
+			return fmt.Errorf("asset %s compressed size %d is not smaller than identity size %d", name, c.Size, pin.Size)
+		}
+		if err := validateDigest("sha256", c.SHA256); err != nil {
+			return fmt.Errorf("asset %s compressed sha256: %w", name, err)
+		}
+		if err := validateDigest("blake2b256", c.Blake2b256); err != nil {
+			return fmt.Errorf("asset %s compressed blake2b256: %w", name, err)
+		}
 	}
 	return nil
 }
