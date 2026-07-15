@@ -143,16 +143,52 @@ function resolveChunkURL(baseURL, relPath) {
   return new URL(relPath, base).href;
 }
 
+// classifyChunkTransfer splits a completed chunk fetch into wire bytes vs
+// HTTP-cache bytes using Resource Timing. transferSize is only exposed for
+// same-origin responses or cross-origin ones sending Timing-Allow-Origin, so
+// the split degrades to "opaque" against a CDN without that header — the
+// summed byte totals stay exact either way, only the attribution coarsens.
+// The default resource-timing buffer (250 entries) overflows silently during
+// a proof's hundreds of chunk fetches; grow it once and reset it only when
+// full. Clearing per-classification would race sibling fetches in the same
+// Promise.all window and misattribute their bytes as opaque.
+try {
+  performance.setResourceTimingBufferSize(4096);
+  performance.onresourcetimingbufferfull = () => performance.clearResourceTimings();
+} catch {
+  // Older engines without the API keep the default buffer; classification
+  // degrades to opaque once it fills, never miscounts.
+}
+
+function classifyChunkTransfer(url, byteLength) {
+  try {
+    const entries = performance.getEntriesByName(url, 'resource');
+    if (!entries.length) return { network: 0, diskCache: 0, opaque: byteLength };
+    // Newest entry wins: a chunk refetched after LRU eviction must not read
+    // the timing of its earlier fetch.
+    const entry = entries[entries.length - 1];
+    if (entry.transferSize > 0) return { network: byteLength, diskCache: 0, opaque: 0 };
+    if (entry.decodedBodySize > 0) return { network: 0, diskCache: byteLength, opaque: 0 };
+    return { network: 0, diskCache: 0, opaque: byteLength };
+  } catch {
+    return { network: 0, diskCache: 0, opaque: byteLength };
+  }
+}
+
 async function fetchVerifiedChunk(baseURL, chunk, optW7 = false) {
   const cacheKey = optW7 ? verifiedChunkCacheKey(baseURL, chunk) : '';
   if (optW7) {
     const cached = cachedVerifiedChunk(cacheKey, chunk);
     if (cached) {
-      return { raw: cached, fetchMS: 0, hashMS: 0, fetchedBytes: 0, cacheHit: true, cacheMiss: false };
+      return {
+        raw: cached, fetchMS: 0, hashMS: 0, fetchedBytes: 0, cacheHit: true, cacheMiss: false,
+        transfer: { network: 0, diskCache: 0, opaque: 0 },
+      };
     }
   }
   const fetchStarted = performance.now();
-  const response = await fetch(resolveChunkURL(baseURL, chunk.path), { cache: 'force-cache' });
+  const chunkURL = resolveChunkURL(baseURL, chunk.path);
+  const response = await fetch(chunkURL, { cache: 'force-cache' });
   const raw = new Uint8Array(await response.arrayBuffer());
   const fetchMS = performance.now() - fetchStarted;
   if (response.status !== 200) {
@@ -172,7 +208,10 @@ async function fetchVerifiedChunk(baseURL, chunk, optW7 = false) {
   // Verify-before-cache is the W7 security boundary. No error path above can
   // populate the LRU, so corrupt bytes are fetched and rejected again.
   if (optW7) insertVerifiedChunk(cacheKey, raw);
-  return { raw, fetchMS, hashMS, fetchedBytes: raw.byteLength, cacheHit: false, cacheMiss: optW7 };
+  return {
+    raw, fetchMS, hashMS, fetchedBytes: raw.byteLength, cacheHit: false, cacheMiss: optW7,
+    transfer: classifyChunkTransfer(chunkURL, raw.byteLength),
+  };
 }
 
 async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = false, prefetchWindow = 2) {
@@ -205,7 +244,13 @@ async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = fal
     fetch_requests: 0,
     w7_applied: optW7 ? 1 : 0,
   };
-  const bytes = { fetched: 0, hashed: 0, cache_hit: 0, used: pointsRaw.byteLength };
+  const bytes = {
+    fetched: 0, hashed: 0, cache_hit: 0, used: pointsRaw.byteLength,
+    // Wire-vs-HTTP-cache attribution of the fetched bytes (Resource Timing).
+    // "opaque" collects bytes the browser will not attribute (cross-origin
+    // responses without Timing-Allow-Origin).
+    network: 0, disk_cache: 0, opaque: 0,
+  };
   const chunks = (plan.chunks || []).filter((chunk) => {
     const chunkStart = chunk.offset;
     const chunkEnd = chunk.offset + chunk.size;
@@ -223,7 +268,7 @@ async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = fal
     );
     for (let index = 0; index < window.length; index += 1) {
       const chunk = window[index];
-      const { raw, fetchMS, hashMS, fetchedBytes, cacheHit, cacheMiss } = verified[index];
+      const { raw, fetchMS, hashMS, fetchedBytes, cacheHit, cacheMiss, transfer } = verified[index];
       timings.fetch_ms += fetchMS;
       timings.hash_ms += hashMS;
       timings.cache_hits += cacheHit ? 1 : 0;
@@ -231,6 +276,11 @@ async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = fal
       bytes.fetched += fetchedBytes;
       bytes.hashed += cacheHit ? 0 : raw.byteLength;
       bytes.cache_hit += cacheHit ? raw.byteLength : 0;
+      if (transfer) {
+        bytes.network += transfer.network;
+        bytes.disk_cache += transfer.diskCache;
+        bytes.opaque += transfer.opaque;
+      }
       const chunkStart = chunk.offset;
       const useStart = Math.max(start, chunkStart);
       const useEnd = Math.min(end, chunkStart + chunk.size);
@@ -316,6 +366,25 @@ self.onmessage = async (e) => {
     if (msg && msg.type === 'msm-section-range') {
       const { partial, timings, bytes } = await runSectionRange(msg);
       self.postMessage({ id: msg.id, partial, compute_ms: timings.compute_ms || 0, timings, bytes }, [partial.buffer]);
+      return;
+    }
+    if (msg && msg.type === 'fft-transform') {
+      // opt-W8 whole-vector computeH transform. The vector arrives and leaves
+      // through the same SharedArrayBuffer (canonical scalar bytes); the reply
+      // carries only an empty partial to satisfy the shared reply shape. The
+      // vector is witness-derived, so the local copy is zeroed like scalars.
+      const vecView = new Uint8Array(msg.vec);
+      const computeStarted = performance.now();
+      const out = self.__msmengineFFTTransform(vecView, !!msg.inverse, !!msg.coset, msg.cardinality);
+      vecView.set(out);
+      out.fill(0);
+      const computeMS = performance.now() - computeStarted;
+      self.postMessage({
+        id: msg.id,
+        partial: new Uint8Array(0),
+        compute_ms: computeMS,
+        timings: { compute_ms: computeMS },
+      });
       return;
     }
     const { id, g2, pts, scs } = msg;

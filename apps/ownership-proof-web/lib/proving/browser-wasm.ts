@@ -45,6 +45,11 @@ const DEFAULT_TUNING: Required<Omit<BrowserProvingTuning, "shard_multiplier">> =
     shard_count: 8,
     range_fetch_concurrency: 2,
     chunk_prefetch_window: 2,
+    // Warm the HTTP cache with PK chunks in dispatch order while the proof
+    // head (CCS fetch, path search, solve) leaves the downlink idle; MSM
+    // workers then hit the cache instead of the network. 2 lanes keeps the
+    // low-priority readahead from starving needed-now fetches.
+    chunk_readahead: 2,
     pinned_decode: true,
     opt_w1: true,
     opt_w2: true,
@@ -52,6 +57,10 @@ const DEFAULT_TUNING: Required<Omit<BrowserProvingTuning, "shard_multiplier">> =
     opt_w5: true,
     opt_w6: true,
     opt_w7: true,
+    // W8 offloads computeH's whole-vector FFTs to dedicated workers; the
+    // engine self-gates to pools of >= 8 MSM workers, so small hosts keep
+    // the main-thread FFT.
+    opt_w8: true,
     // gogc=15/3200MiB measured faster than 50/3000MiB across cold/warm and
     // 8/16-worker cases (output/gogc50-comparison vs remote-browser-matrix-v2-opt-r1):
     // on the single-threaded main instance, small frequent GC cycles beat
@@ -543,6 +552,7 @@ function buildTuningBlock(
     shard_count: Math.max(tuning.shard_count, workerCount),
     range_fetch_concurrency: tuning.range_fetch_concurrency,
     chunk_prefetch_window: tuning.chunk_prefetch_window,
+    chunk_readahead: tuning.chunk_readahead,
     pinned_decode: tuning.pinned_decode,
     opt_w1: tuning.opt_w1,
     opt_w2: tuning.opt_w2,
@@ -550,6 +560,7 @@ function buildTuningBlock(
     opt_w5: tuning.opt_w5,
     opt_w6: tuning.opt_w6,
     opt_w7: tuning.opt_w7,
+    opt_w8: tuning.opt_w8,
     ...(descriptor.tuning?.shard_multiplier !== undefined
       ? { shard_multiplier: descriptor.tuning.shard_multiplier }
       : {}),

@@ -159,7 +159,13 @@ curl -sSI "$BASE/ownership.pk" \
 
 ## Producing the assets
 
-1. Build the runtime (reproducible; two clean builds → identical hashes):
+1. Build the runtime (reproducible; two clean builds → identical hashes).
+   Requires Binaryen's `wasm-opt` on PATH (`apt install binaryen`,
+   `brew install binaryen`, or `npm i -g binaryen`): the build runs a
+   deterministic `wasm-opt -O3 -all` post-pass (~9% smaller modules) and
+   records the wasm-opt version in `runtime-manifest.json`. Override with
+   `WASM_OPT=<path>`, `WASM_OPT_FLAGS=...`, or skip with `WASM_OPT=none`
+   (changes the output hashes):
 
        scripts/build-wasm-prover.sh            # → dist/proof-runtime/{proof-destination.wasm,msmworker.wasm,wasm_exec.js,runtime-manifest.json}
 
@@ -168,6 +174,12 @@ curl -sSI "$BASE/ownership.pk" \
    production `apps/ownership-proof-web/public/proof-runtime/msm-worker.js` — its
    bytes are pinned under the chunk-manifest asset key `worker.js` even though
    the served filename is `msm-worker.js`.
+
+   Pass `--compress-ccs` to also emit and pin `ownership-destination.ccs.zst`
+   (~30% of the identity size); clients that understand the pin fetch the
+   compressed object, verify both pinned digest layers, and fall back to the
+   identity CCS if the `.zst` object is unavailable. Upload the `.zst` next to
+   the identity CCS under the same release prefix.
 
        go run ./cmd/proof-tool generate-chunk-manifest \
          --keys-dir <signed key bundle dir> \

@@ -26,19 +26,21 @@ type fileEntry struct {
 type manifest struct {
 	GoVersion  string      `json:"go_version,omitempty"`
 	BuildFlags []string    `json:"build_flags,omitempty"`
+	WasmOpt    string      `json:"wasm_opt,omitempty"`
 	Files      []fileEntry `json:"files"`
 }
 
 func main() {
 	goVersion := flag.String("go-version", "", "go version string to record in the manifest")
 	buildFlags := flag.String("build-flags", "", "space-separated build flags to record in the manifest")
+	wasmOpt := flag.String("wasm-opt", "", "wasm-opt version/flags string to record in the manifest")
 	flag.Parse()
 	if flag.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "usage: hash-blake2b [-go-version V] [-build-flags F] <file>...")
 		os.Exit(2)
 	}
 
-	m := manifest{GoVersion: *goVersion, Files: make([]fileEntry, 0, flag.NArg())}
+	m := manifest{GoVersion: *goVersion, WasmOpt: *wasmOpt, Files: make([]fileEntry, 0, flag.NArg())}
 	if *buildFlags != "" {
 		m.BuildFlags = strings.Fields(*buildFlags)
 	}

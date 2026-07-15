@@ -258,3 +258,48 @@ func hexKey(key ed25519.PublicKey) string {
 	}
 	return string(out)
 }
+
+func TestValidateAssetPinCompressedVariant(t *testing.T) {
+	valid := AssetPin{
+		Path:       "ownership-destination.ccs",
+		Size:       1000,
+		SHA256:     shaPrefixedHash("11"),
+		Blake2b256: prefixedHash("22"),
+		Compressed: &CompressedAssetPin{
+			Path:       "ownership-destination.ccs.zst",
+			Encoding:   "zstd",
+			Size:       300,
+			SHA256:     shaPrefixedHash("33"),
+			Blake2b256: prefixedHash("44"),
+		},
+	}
+	if err := validateAssetPin("ccs", valid); err != nil {
+		t.Fatalf("valid compressed pin rejected: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*AssetPin)
+		want   string
+	}{
+		{"unsupported encoding", func(p *AssetPin) { p.Compressed.Encoding = "gzip" }, "not supported"},
+		{"unsafe path", func(p *AssetPin) { p.Compressed.Path = "../evil.zst" }, "safe relative path"},
+		{"same path as identity", func(p *AssetPin) { p.Compressed.Path = p.Path }, "must differ"},
+		{"zero size", func(p *AssetPin) { p.Compressed.Size = 0 }, "must be positive"},
+		{"not smaller than identity", func(p *AssetPin) { p.Compressed.Size = p.Size }, "not smaller"},
+		{"bad sha256", func(p *AssetPin) { p.Compressed.SHA256 = "sha256:zz" }, "sha256"},
+		{"bad blake2b", func(p *AssetPin) { p.Compressed.Blake2b256 = "nope" }, "blake2b256"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pin := valid
+			compressed := *valid.Compressed
+			pin.Compressed = &compressed
+			tc.mutate(&pin)
+			err := validateAssetPin("ccs", pin)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}

@@ -19,6 +19,7 @@ export type BrowserProvingTuning = {
   shard_multiplier?: number;
   range_fetch_concurrency?: number;
   chunk_prefetch_window?: number;
+  chunk_readahead?: number;
   pinned_decode?: boolean;
   opt_w1?: boolean;
   opt_w2?: boolean;
@@ -26,6 +27,7 @@ export type BrowserProvingTuning = {
   opt_w5?: boolean;
   opt_w6?: boolean;
   opt_w7?: boolean;
+  opt_w8?: boolean;
   gogc?: number;
   gomemlimit?: string;
 };
