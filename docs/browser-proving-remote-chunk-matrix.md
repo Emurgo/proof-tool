@@ -22,6 +22,8 @@ The checked-in docs/benchmarks/v2-baseline-16m/ directory is a signature-verifie
 
 The v2-opt-r1 matrix (output/remote-browser-matrix-v2-opt-r1) measured the optimized runtime (W1-W3, W5-W7, pinned decode) against the Vercel preview harness:
 
+- **Best measured results (the current reference baseline, superseding the signed-r8 G1 gate's 70,400 ms / 1.4593 GiB):** warm 16-worker **41.46 s** (`v2-2m-fresh-warm-w16-idle-pf4`), cold 16-worker **47.68 s** (`v2-2m-hit-cold-w16-idle-pf2`), peak heap **~0.83 GiB**, all proofs verified locally. Compare future optimization work against these, not the r8 gate.
+
 - **2 MiB tier: complete** (all 32 cases, cold/warm x hit/fresh x 8/16 workers x idle/loaded, pf2 and pf4). 16 workers: 41.5-51.5 s; 8 workers: 63.4-81.0 s. All proofs verified locally.
 - **4 MiB tier: partial** (CDN-hit cases only). Results track the 2 MiB tier within noise. The one anomalous result (v2-4m-hit-warm-w16-idle-pf4, 86.7 s) did not reproduce on re-measurement (55.9 s, verified; output/gogc50-comparison/results/rerun-v2-4m-hit-warm-w16-idle-pf4.summary.json); treat the original sample as contaminated.
 - **16 MiB tier: explicitly descoped for this release.** Production ships the 2 MiB chunk tier (see the pk2m CCS/PK prefixes in reclaim-deployment.json), which is fully measured. The 16 MiB tier remains covered only by the historical baseline above; re-measure it before any future chunk-size change.

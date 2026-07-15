@@ -272,6 +272,24 @@ Gate G1 signed runtime promotion, 2026-07-11:
   require the G3 ceremony plus a full PK/CCS/VK/manifest/runtime coherence
   refresh, not a partial runtime replacement.
 
+Optimized V2 runtime measurements, 2026-07-14 (supersede the r8 G1 numbers as
+best measured results):
+
+- The v2-opt-r1 matrix (output/remote-browser-matrix-v2-opt-r1, deployment
+  key id `preprod-local-destination-v2-9fac96b-g3a`, 2 MiB chunk tier,
+  gogc=15/gomemlimit=3200MiB) measured best verified proofs of 41.46 s warm
+  (`v2-2m-fresh-warm-w16-idle-pf4`) and 47.68 s cold
+  (`v2-2m-hit-cold-w16-idle-pf2`) at w16/s16 with ~0.83 GiB peak heap —
+  versus the signed-r8 G1 gate's 70,400 ms / 1.4593 GiB (~41% faster, ~43%
+  lower peak heap). The 8-worker floor lands at 63-81 s. See
+  docs/browser-proving-remote-chunk-matrix.md for full coverage status.
+- The r8 G1 gate record above is retained as the acceptance evidence for the
+  r8 runtime it measured; it is no longer the reference baseline. New
+  optimization comparisons should be made against the r1 results.
+- Active tuning as shipped now sets gogc=15/gomemlimit=3200MiB (measured 9-27%
+  faster than GOGC50/3000MiB across cold/warm and 8/16-worker cases; see
+  output/gogc50-comparison).
+
 W7 verified-chunk reuse qualification, 2026-07-10:
 
 - A fresh signed local candidate manifest used the existing immutable
