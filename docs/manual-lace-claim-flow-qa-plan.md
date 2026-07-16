@@ -554,6 +554,9 @@ the production web app or used as the signing wallet.
 The driver unlocks and selects the compromised test wallet before creating the
 web-app tab so Lace injects its real CIP-30 provider when the page is created.
 It still selects and connects Lace through the visible claim UI afterward.
+For Lace 2.1.1, connection approval selects Source Account, chooses the wallet
+by its configured label, captures the extension review, and then authorizes.
+
 The app refreshes detected wallets on the Cardano initialization event, window
 focus or visibility changes, and a bounded ten-second fallback poll so a
 slightly delayed extension injection does not leave a user at No wallet found.
@@ -621,7 +624,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
 ### Current verification evidence
 
 - The focused resolver/provenance/contract/fixture/provider/Lace/app-server and
-  local PR-push tests pass: 42 tests across nine files.
+  local PR-push tests pass: 43 tests across nine files.
 - `pnpm typecheck`, the Next production build, Node syntax checks, YAML parsing,
   direct reclaim-manifest verification, and `git diff --check` pass for the
   current working tree.
@@ -645,7 +648,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
   `/claim-api/build-provenance` in the route table. This is compatibility
   evidence only; PR #13's deployed Preview predates this lane.
 - After adding the local-production PR-push wrapper on PR #14, typecheck passed,
-  the complete web-app suite passed 400 of 400 tests across 47 files, and the
+  the complete web-app suite passed 401 of 401 tests across 47 files, and the
   production build passed with the provenance route in the route table.
 - The exact deployed Preview merge gate has not completed yet. Therefore there
   is no deployed-Preview nineteen-screenshot acceptance bundle, transaction

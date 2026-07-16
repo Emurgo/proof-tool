@@ -202,17 +202,11 @@ export class RealLaceProfileDriver {
   }
 
   async approveDappConnection(role, options = {}) {
-    this.requireRoleState(role);
-    return clickFirstVisibleInExtensionPages(
+    const state = this.requireRoleState(role);
+    return approveLaceDappConnection(
       this.context,
       this.extensionId,
-      [
-        '[data-testid="connect-modal-accept-once"]',
-        '[data-testid="connect-modal-accept-always"]',
-        '[data-testid="connect-authorize-button"]',
-      ],
-      "lace_connection_prompt_missing",
-      null,
+      state.label,
       this.extensionRoute,
       options.beforeApprove,
     );
@@ -533,6 +527,64 @@ async function clickFirstVisibleInExtensionPages(
     await sleep(EXTENSION_POLL_MS);
   }
   throw new PreprodRealLaceDriverError(code, `Timed out waiting for Lace selector: ${selectors.join(", ")}.`);
+}
+
+async function approveLaceDappConnection(context, extensionId, accountLabel, fallbackRoute, onBeforeApprove) {
+  if (!context || !extensionId) {
+    throw new PreprodRealLaceDriverError("lace_context_missing", "Lace browser context is not initialized.");
+  }
+  const legacySelectors = [
+    '[data-testid="connect-modal-accept-once"]',
+    '[data-testid="connect-modal-accept-always"]',
+    '[data-testid="connect-authorize-button"]',
+  ];
+  const deadline = Date.now() + EXTENSION_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    let pages = extensionPages(context, extensionId);
+    if (pages.length === 0) {
+      pages = [await waitForExtensionPage(context, extensionId, fallbackRoute)];
+    }
+    for (const page of pages) {
+      for (const selector of legacySelectors) {
+        const locator = page.locator(selector).first();
+        if (await safeVisible(locator)) {
+          if (onBeforeApprove) {
+            await onBeforeApprove(page, locator);
+          }
+          await locator.click();
+          return page;
+        }
+      }
+
+      const accountDropdown = page.locator('[data-testid="dropdown-button"]').first();
+      const authorize = page.locator('[data-testid="dapp-connector-primary-button"]').first();
+      if (!(await safeVisible(accountDropdown)) || !(await safeVisible(authorize))) {
+        continue;
+      }
+      await accountDropdown.click();
+      const account = page
+        .locator('[data-testid^="dropdown-menu-item-"]')
+        .filter({ hasText: accountLabel })
+        .first();
+      if (!(await safeVisible(account))) {
+        throw new PreprodRealLaceDriverError(
+          "lace_connection_account_missing",
+          `Lace connection prompt does not expose the configured account ${accountLabel}.`,
+        );
+      }
+      await account.click();
+      if (onBeforeApprove) {
+        await onBeforeApprove(page, authorize);
+      }
+      await authorize.click();
+      return page;
+    }
+    await sleep(EXTENSION_POLL_MS);
+  }
+  throw new PreprodRealLaceDriverError(
+    "lace_connection_prompt_missing",
+    "Timed out waiting for the Lace DApp authorization prompt.",
+  );
 }
 
 function extensionPages(context, extensionId) {

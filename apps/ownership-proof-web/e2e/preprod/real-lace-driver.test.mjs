@@ -127,6 +127,40 @@ describe("real Lace profile driver", () => {
     });
   });
 
+  it("selects the Lace 2.1.1 DApp account by label before authorizing", async () => {
+    const compromised = deriveRoleState({
+      role: "compromised_user",
+      mnemonic: words("cable", 12),
+      label: "compromised_user",
+    });
+    const driver = new RealLaceProfileDriver({
+      browserChannel: "chromium",
+      extensionDir: "/tmp/lace",
+      extensionRoute: "expo/index.html",
+      manifestPath: "/tmp/lace/manifest.json",
+      providerId: "lace",
+      providerName: "Lace",
+      roleLabels: { compromised_user: "compromised_user" },
+      roleStates: new Map([["compromised_user", compromised]]),
+      userDataDir: "/tmp/profile",
+      walletPassword: "test-password",
+    });
+    const { context, clicks } = fakeLaceDappConnectContext("compromised_user");
+    driver.context = context;
+    driver.extensionId = "laceextensionid";
+
+    await driver.approveDappConnection("compromised_user", {
+      beforeApprove: async () => clicks.push("before-authorize"),
+    });
+
+    expect(clicks).toEqual([
+      "dropdown",
+      "account:compromised_user",
+      "before-authorize",
+      "authorize",
+    ]);
+  });
+
   it("reports a rejected persisted password as an unlock failure", async () => {
     const page = fakeRejectedUnlockPage();
 
@@ -189,6 +223,56 @@ function fakeExtensionContext() {
           },
         },
       ];
+    },
+  };
+}
+
+function fakeLaceDappConnectContext(accountLabel) {
+  const clicks = [];
+  let dropdownOpen = false;
+  const page = {
+    url() {
+      return "chrome-extension://laceextensionid/expo/index.html#/cardano-dapp-connect";
+    },
+    isClosed() {
+      return false;
+    },
+    locator(selector) {
+      const makeLocator = (kind, hasText = null) => ({
+        first() {
+          return makeLocator(kind, hasText);
+        },
+        filter(options) {
+          return makeLocator(kind, options.hasText);
+        },
+        async isVisible() {
+          if (kind === "dropdown" || kind === "authorize") return true;
+          if (kind === "account") return dropdownOpen && hasText === accountLabel;
+          return false;
+        },
+        async click() {
+          if (kind === "dropdown") {
+            dropdownOpen = true;
+            clicks.push("dropdown");
+          } else if (kind === "account") {
+            clicks.push(`account:${hasText}`);
+          } else if (kind === "authorize") {
+            clicks.push("authorize");
+          }
+        },
+      });
+      if (selector === '[data-testid="dropdown-button"]') return makeLocator("dropdown");
+      if (selector === '[data-testid="dapp-connector-primary-button"]') return makeLocator("authorize");
+      if (selector === '[data-testid^="dropdown-menu-item-"]') return makeLocator("account");
+      return makeLocator("missing");
+    },
+  };
+  return {
+    clicks,
+    context: {
+      pages() {
+        return [page];
+      },
     },
   };
 }
