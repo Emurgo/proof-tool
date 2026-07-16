@@ -29,24 +29,18 @@ afterEach(() => {
 describe("verify-reclaim-manifest V2 coherence", () => {
   it("accepts matched statement-bound V2 metadata", async () => {
     const manifest = statementBoundV2Manifest();
-    manifest.reclaim_global.proof_slot_encoding =
-      "full-proof-plus-public-input-digest-v2";
-    manifest.reclaim_global.batch_transcript_vk_hash =
-      manifest.proof.cardano_vk_blake2b256;
+    manifest.reclaim_global.proof_slot_encoding = "full-proof-plus-public-input-digest-v2";
+    manifest.reclaim_global.batch_transcript_vk_hash = manifest.proof.cardano_vk_blake2b256;
 
     const { stdout } = await verify(manifest);
     const result = JSON.parse(stdout);
-    expect(result.proof_slot_encoding).toBe(
-      "full-proof-plus-public-input-digest-v2",
-    );
+    expect(result.proof_slot_encoding).toBe("full-proof-plus-public-input-digest-v2");
   });
 
   it("rejects a mismatched V2 transcript verifier-key hash", async () => {
     const manifest = publicManifest();
-    manifest.reclaim_global.proof_slot_encoding =
-      "full-proof-plus-public-input-digest-v2";
-    manifest.reclaim_global.batch_transcript_vk_hash =
-      "blake2b256:" + "00".repeat(32);
+    manifest.reclaim_global.proof_slot_encoding = "full-proof-plus-public-input-digest-v2";
+    manifest.reclaim_global.batch_transcript_vk_hash = `blake2b256:${"00".repeat(32)}`;
 
     await expect(verify(manifest)).rejects.toMatchObject({
       stderr: expect.stringContaining("reclaim_global.batch_transcript_vk_hash"),
@@ -70,9 +64,7 @@ describe("verify-reclaim-manifest V2 coherence", () => {
     };
 
     const { stdout } = await verify(manifest);
-    expect(JSON.parse(stdout).distinct_7_opt_in).toEqual(
-      manifest.batching.distinct_7_opt_in,
-    );
+    expect(JSON.parse(stdout).distinct_7_opt_in).toEqual(manifest.batching.distinct_7_opt_in);
   });
 
   it("rejects an automatic or unevaluated explicit seven-slot V2 batch", async () => {
@@ -92,9 +84,7 @@ describe("verify-reclaim-manifest V2 coherence", () => {
     };
 
     await expect(verify(manifest)).rejects.toMatchObject({
-      stderr: expect.stringContaining(
-        "batching.distinct_7_opt_in.require_explicit_request",
-      ),
+      stderr: expect.stringContaining("batching.distinct_7_opt_in.require_explicit_request"),
     });
   });
 
@@ -126,8 +116,7 @@ function publicManifest() {
 
 function nonStatementBoundManifest() {
   const manifest = publicManifest();
-  manifest.reclaim_global.proof_slot_encoding =
-    "bytes-empty-same-as-previous-v1";
+  manifest.reclaim_global.proof_slot_encoding = "bytes-empty-same-as-previous-v1";
   delete manifest.reclaim_global.batch_transcript_vk_hash;
   delete manifest.batching.distinct_7_opt_in;
   return manifest;
@@ -135,10 +124,8 @@ function nonStatementBoundManifest() {
 
 function statementBoundV2Manifest() {
   const manifest = publicManifest();
-  manifest.reclaim_global.proof_slot_encoding =
-    "full-proof-plus-public-input-digest-v2";
-  manifest.reclaim_global.batch_transcript_vk_hash =
-    manifest.proof.cardano_vk_blake2b256;
+  manifest.reclaim_global.proof_slot_encoding = "full-proof-plus-public-input-digest-v2";
+  manifest.reclaim_global.batch_transcript_vk_hash = manifest.proof.cardano_vk_blake2b256;
   manifest.batching = {
     default_utxo_count: 6,
     optimization_utxo_count: 6,

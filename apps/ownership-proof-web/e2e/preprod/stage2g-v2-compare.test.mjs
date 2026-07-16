@@ -74,9 +74,7 @@ describe("Stage 2g V2 baseline comparison", () => {
   it("redacts proof-like provider material from CLI failure summaries", () => {
     const proofHex = "ab".repeat(336);
     const token = "Z".repeat(160);
-    const summary = comparisonFailureSummary(
-      new Error(`provider rejected tx proof=${proofHex} token=${token}`),
-    );
+    const summary = comparisonFailureSummary(new Error(`provider rejected tx proof=${proofHex} token=${token}`));
 
     expect(summary).toEqual(
       expect.objectContaining({
@@ -93,9 +91,7 @@ describe("Stage 2g V2 baseline comparison", () => {
   it("redacts every segment of dotted provider authorization tokens", () => {
     const segments = ["g".repeat(80), "h".repeat(180), "i".repeat(80)];
     const authorization = `Bearer ${segments.join(".")}`;
-    const summary = comparisonFailureSummary(
-      new Error(`provider failed authorization=${authorization}`),
-    );
+    const summary = comparisonFailureSummary(new Error(`provider failed authorization=${authorization}`));
 
     expect(summary.message).toContain("[authorization-redacted]");
     for (const segment of segments) {

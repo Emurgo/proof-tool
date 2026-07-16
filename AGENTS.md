@@ -59,6 +59,9 @@ inventing credentials, proof bytes, public inputs, or Cardano wire values.
 For security or protocol changes, prefer real derive/prove/verify/export and
 contract-path evidence with negative tests over compile-only evidence.
 
+`pnpm test:all` (repo root) is the aggregate quality gate; see CONTRIBUTING.md
+for tooling setup, linting, and hooks.
+
 When serving `apps/ownership-proof-web` locally, source the repo-root
 `.env.local` or otherwise set the reclaim deployment manifest/`RECLAIM_*` env
 so fresh-user testing has the canonical deployment context.

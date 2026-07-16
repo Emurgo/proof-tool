@@ -42,7 +42,10 @@ export async function createRealLaceProfileDriverFromEnv(options = {}) {
   const extensionDir = requiredExistingDirectory(env[LACE_EXTENSION_DIR_ENV], LACE_EXTENSION_DIR_ENV, fileExists);
   const manifestPath = path.join(extensionDir, "manifest.json");
   if (!fileExists(manifestPath)) {
-    throw new PreprodRealLaceDriverError("lace_manifest_missing", `${LACE_EXTENSION_DIR_ENV} must contain manifest.json.`);
+    throw new PreprodRealLaceDriverError(
+      "lace_manifest_missing",
+      `${LACE_EXTENSION_DIR_ENV} must contain manifest.json.`,
+    );
   }
   const manifest = readLaceManifest(manifestPath, readTextFile);
   const userDataDir = requiredString(env.PW_USER_DATA_DIR, "PW_USER_DATA_DIR");
@@ -136,15 +139,15 @@ export class RealLaceProfileDriver {
 
   async launchBrowserContext(browserLauncher, { headless = false } = {}) {
     if (!browserLauncher || typeof browserLauncher.launchPersistentContext !== "function") {
-      throw new PreprodRealLaceDriverError("lace_persistent_context_unavailable", "Lace mode requires chromium.launchPersistentContext.");
+      throw new PreprodRealLaceDriverError(
+        "lace_persistent_context_unavailable",
+        "Lace mode requires chromium.launchPersistentContext.",
+      );
     }
     this.context = await browserLauncher.launchPersistentContext(this.userDataDir, {
       channel: this.browserChannel,
       headless: false,
-      args: [
-        `--disable-extensions-except=${this.extensionDir}`,
-        `--load-extension=${this.extensionDir}`,
-      ],
+      args: [`--disable-extensions-except=${this.extensionDir}`, `--load-extension=${this.extensionDir}`],
     });
     if (headless) {
       // The explicit env is accepted for compatibility, but Lace smoke keeps the
@@ -215,10 +218,7 @@ export class RealLaceProfileDriver {
     await clickFirstVisibleInExtensionPages(
       this.context,
       this.extensionId,
-      [
-        '[data-testid="dapp-transaction-confirm"]',
-        '[data-testid="sign-transaction-confirm"]',
-      ],
+      ['[data-testid="dapp-transaction-confirm"]', '[data-testid="sign-transaction-confirm"]'],
       `lace_${purpose}_sign_prompt_missing`,
       async (page) => {
         if (!this.walletPassword) {
@@ -299,7 +299,9 @@ export class RealLaceProfileDriver {
     if (probe.networkId !== PREPROD_NETWORK_ID) {
       throw new PreprodRealLaceDriverError("lace_network_mismatch", "Lace must expose Preprod network id 0.");
     }
-    const addresses = [...(Array.isArray(probe.usedAddresses) ? probe.usedAddresses : []), probe.changeAddress].filter(Boolean);
+    const addresses = [...(Array.isArray(probe.usedAddresses) ? probe.usedAddresses : []), probe.changeAddress].filter(
+      Boolean,
+    );
     if (!addresses.includes(state.addressHex)) {
       throw new PreprodRealLaceDriverError(
         "lace_active_wallet_mismatch",
@@ -338,7 +340,9 @@ function resolveLaceExtensionRoute(manifest) {
 }
 
 function normalizeExtensionRoute(value) {
-  const route = String(value ?? "").trim().replace(/^\/+/u, "");
+  const route = String(value ?? "")
+    .trim()
+    .replace(/^\/+/u, "");
   return route || null;
 }
 
@@ -347,7 +351,9 @@ async function deriveRoleStates(walletFile, { roleLabels, deriveRoleState }) {
   const entries = [];
   for (const role of REQUIRED_WALLET_ROLES) {
     const roleConfig = rolesRoot[role];
-    const mnemonic = normalizeMnemonic(roleConfig.mnemonic ?? roleConfig.seed_phrase ?? roleConfig.recovery_phrase ?? roleConfig.mnemonic_words);
+    const mnemonic = normalizeMnemonic(
+      roleConfig.mnemonic ?? roleConfig.seed_phrase ?? roleConfig.recovery_phrase ?? roleConfig.mnemonic_words,
+    );
     const label = roleLabels[role] ?? defaultRoleLabel(role);
     const state = deriveRoleState
       ? await deriveRoleState({ role, mnemonic, label, roleConfig })
@@ -385,7 +391,10 @@ function loadWalletFile(configuredPath, { cwd, repoRoot, fileExists, readTextFil
   try {
     return JSON.parse(readTextFile(resolvedPath));
   } catch {
-    throw new PreprodRealLaceDriverError("lace_wallet_file_json_malformed", "PREPROD_TEST_WALLETS_FILE must be valid JSON.");
+    throw new PreprodRealLaceDriverError(
+      "lace_wallet_file_json_malformed",
+      "PREPROD_TEST_WALLETS_FILE must be valid JSON.",
+    );
   }
 }
 
@@ -409,10 +418,16 @@ function roleLabelsFromEnv(env) {
   try {
     const parsed = JSON.parse(configured);
     return Object.fromEntries(
-      REQUIRED_WALLET_ROLES.map((role) => [role, typeof parsed?.[role] === "string" && parsed[role].trim() ? parsed[role].trim() : defaultRoleLabel(role)]),
+      REQUIRED_WALLET_ROLES.map((role) => [
+        role,
+        typeof parsed?.[role] === "string" && parsed[role].trim() ? parsed[role].trim() : defaultRoleLabel(role),
+      ]),
     );
   } catch {
-    throw new PreprodRealLaceDriverError("lace_role_labels_json_malformed", `${LACE_ROLE_LABELS_JSON_ENV} must be valid JSON.`);
+    throw new PreprodRealLaceDriverError(
+      "lace_role_labels_json_malformed",
+      `${LACE_ROLE_LABELS_JSON_ENV} must be valid JSON.`,
+    );
   }
 }
 
@@ -423,7 +438,10 @@ function defaultRoleLabel(role) {
 function requiredString(value, field) {
   const normalized = String(value ?? "").trim();
   if (!normalized) {
-    throw new PreprodRealLaceDriverError(`${field.toLowerCase()}_missing`, `${field} is required for real Lace wallet mode.`);
+    throw new PreprodRealLaceDriverError(
+      `${field.toLowerCase()}_missing`,
+      `${field} is required for real Lace wallet mode.`,
+    );
   }
   return normalized;
 }
@@ -437,13 +455,18 @@ function requiredExistingDirectory(value, field, fileExists) {
 }
 
 async function resolveExtensionId(context, manifestPath) {
-  const serviceWorker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker", { timeout: EXTENSION_TIMEOUT_MS }).catch(() => null));
+  const serviceWorker =
+    context.serviceWorkers()[0] ??
+    (await context.waitForEvent("serviceworker", { timeout: EXTENSION_TIMEOUT_MS }).catch(() => null));
   if (serviceWorker) {
     return new URL(serviceWorker.url()).host;
   }
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (typeof manifest.key !== "string" || !manifest.key) {
-    throw new PreprodRealLaceDriverError("lace_extension_id_unavailable", "Lace extension id could not be discovered and manifest.key is missing.");
+    throw new PreprodRealLaceDriverError(
+      "lace_extension_id_unavailable",
+      "Lace extension id could not be discovered and manifest.key is missing.",
+    );
   }
   return extensionIdFromManifestKey(manifest.key);
 }
@@ -480,7 +503,14 @@ async function waitForExtensionPage(context, extensionId, route = "popup.html") 
   throw new PreprodRealLaceDriverError("lace_extension_page_missing", "Timed out waiting for a Lace extension page.");
 }
 
-async function clickFirstVisibleInExtensionPages(context, extensionId, selectors, code, beforeClick = null, fallbackRoute = "popup.html") {
+async function clickFirstVisibleInExtensionPages(
+  context,
+  extensionId,
+  selectors,
+  code,
+  beforeClick = null,
+  fallbackRoute = "popup.html",
+) {
   if (!context || !extensionId) {
     throw new PreprodRealLaceDriverError("lace_context_missing", "Lace browser context is not initialized.");
   }
@@ -516,11 +546,18 @@ async function unlockIfNeeded(page, password) {
   const authInput = page.locator('[data-testid="authentication-prompt-input-value"]').first();
   if (await authInput.isVisible({ timeout: 4000 }).catch(() => false)) {
     if (!password) {
-      throw new PreprodRealLaceDriverError("lace_wallet_password_missing", `${LACE_WALLET_PASSWORD_ENV} is required to unlock Lace.`);
+      throw new PreprodRealLaceDriverError(
+        "lace_wallet_password_missing",
+        `${LACE_WALLET_PASSWORD_ENV} is required to unlock Lace.`,
+      );
     }
     await authInput.fill(password);
     await page.locator('[data-testid="authentication-prompt-button-confirm"]').first().click({ force: true });
-    await page.locator('[data-testid="authentication-prompt-body"]').first().waitFor({ state: "hidden", timeout: EXTENSION_TIMEOUT_MS }).catch(() => undefined);
+    await page
+      .locator('[data-testid="authentication-prompt-body"]')
+      .first()
+      .waitFor({ state: "hidden", timeout: EXTENSION_TIMEOUT_MS })
+      .catch(() => undefined);
     await page.waitForTimeout(1000);
     return;
   }
@@ -529,7 +566,10 @@ async function unlockIfNeeded(page, password) {
     return;
   }
   if (!password) {
-    throw new PreprodRealLaceDriverError("lace_wallet_password_missing", `${LACE_WALLET_PASSWORD_ENV} is required to unlock Lace.`);
+    throw new PreprodRealLaceDriverError(
+      "lace_wallet_password_missing",
+      `${LACE_WALLET_PASSWORD_ENV} is required to unlock Lace.`,
+    );
   }
   const passwordInput = page.locator('input[type="password"]').first();
   if (await safeVisible(passwordInput)) {
@@ -544,7 +584,11 @@ async function switchOfficialLaceAccount(page, role) {
   if (accountIndex < 0) {
     return false;
   }
-  await page.getByText(/Portfolio/iu).first().waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
+  await page
+    .getByText(/Portfolio/iu)
+    .first()
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .catch(() => undefined);
   const indicator = page.locator('[data-testid="account-indicator"]').nth(accountIndex);
   if (!(await indicator.isVisible({ timeout: 5000 }).catch(() => false))) {
     return false;
@@ -572,7 +616,10 @@ async function visibleText(locator) {
   if (!(await safeVisible(locator))) {
     return "";
   }
-  return locator.textContent().then((value) => String(value ?? "").trim()).catch(() => "");
+  return locator
+    .textContent()
+    .then((value) => String(value ?? "").trim())
+    .catch(() => "");
 }
 
 function publicRoleState(state) {
@@ -608,9 +655,14 @@ function redactCredential(value) {
 
 function normalizeMnemonic(value) {
   if (Array.isArray(value)) {
-    return value.map((word) => String(word).trim()).filter(Boolean).join(" ");
+    return value
+      .map((word) => String(word).trim())
+      .filter(Boolean)
+      .join(" ");
   }
-  return String(value ?? "").trim().replace(/\s+/gu, " ");
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/gu, " ");
 }
 
 function escapeRegex(value) {

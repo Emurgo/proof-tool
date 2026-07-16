@@ -7,6 +7,8 @@ deployments/reclaim/preprod/*.local.json
 *.vk
 .playwright-cli/
 output/
+# Repo-root tooling (Biome, lefthook)
+/node_modules/
 packages/client-ts/node_modules/
 packages/client-ts/.vite/
 apps/ownership-proof-web/.next/

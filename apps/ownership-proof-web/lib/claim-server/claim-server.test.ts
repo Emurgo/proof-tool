@@ -27,7 +27,6 @@ import { destinationAddressV1 } from "../claim/addresses";
 import { createClaimDraft } from "./draft";
 import { getClaimProgress } from "./progress";
 import {
-  UnsupportedClaimBuildError,
   assertMeasuredEvaluationWithinDeploymentMargin,
   buildClaimTx,
   prepareClaimBuildPreflight,
@@ -44,9 +43,11 @@ const CREDENTIAL_6 = "ee".repeat(28);
 const SAFE_CREDENTIAL = "00000000000000000000000000000000000000000000000000000001";
 const TEST_RECLAIM_BASE_SCRIPT = { type: "PlutusV3" as const, script: "450100002499" };
 const TEST_RECLAIM_GLOBAL_SCRIPT = { type: "PlutusV3" as const, script: "450100002498" };
-const testValidatorToScriptHash = (LucidExports as unknown as {
-  validatorToScriptHash: (script: typeof TEST_RECLAIM_BASE_SCRIPT) => string;
-}).validatorToScriptHash;
+const testValidatorToScriptHash = (
+  LucidExports as unknown as {
+    validatorToScriptHash: (script: typeof TEST_RECLAIM_BASE_SCRIPT) => string;
+  }
+).validatorToScriptHash;
 const RECLAIM_SCRIPT = testValidatorToScriptHash(TEST_RECLAIM_BASE_SCRIPT);
 const RECLAIM_GLOBAL_SCRIPT = testValidatorToScriptHash(TEST_RECLAIM_GLOBAL_SCRIPT);
 const PARAMS_POLICY = "55".repeat(28);
@@ -231,12 +232,7 @@ describe("claim draft server helpers", () => {
 
   it("keeps normal statement-bound V2 batches at six and admits seven only through the exact opt-in", async () => {
     const reclaimUtxos = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
-      reclaimUtxo(
-        (index + 1).toString(16).padStart(2, "0"),
-        0,
-        (index + 1).toString(16).padStart(56, "0"),
-        index + 1,
-      ),
+      reclaimUtxo((index + 1).toString(16).padStart(2, "0"), 0, (index + 1).toString(16).padStart(56, "0"), index + 1),
     );
     const provider = providerWith({
       reclaimUtxos,
@@ -272,20 +268,24 @@ describe("claim draft server helpers", () => {
     expect(explicitSeven.orderedInputs).toHaveLength(CLAIM_HARD_BATCH_CAP);
 
     await expect(
-      createClaimDraft(provider, {
-        ...STATEMENT_BOUND_V2_DEPLOYMENT,
-        batching: {
-          ...STATEMENT_BOUND_V2_DEPLOYMENT.batching!,
-          max_tx_cpu_percent: 89,
+      createClaimDraft(
+        provider,
+        {
+          ...STATEMENT_BOUND_V2_DEPLOYMENT,
+          batching: {
+            ...STATEMENT_BOUND_V2_DEPLOYMENT.batching!,
+            max_tx_cpu_percent: 89,
+          },
         },
-      }, {
-        deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
-        networkId: 0,
-        safeWalletChangeAddress: SAFE_ADDRESS,
-        safeWalletAddresses: [SAFE_ADDRESS],
-        nextBatch: true,
-        maxUtxos: CLAIM_HARD_BATCH_CAP,
-      }),
+        {
+          deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
+          networkId: 0,
+          safeWalletChangeAddress: SAFE_ADDRESS,
+          safeWalletAddresses: [SAFE_ADDRESS],
+          nextBatch: true,
+          maxUtxos: CLAIM_HARD_BATCH_CAP,
+        },
+      ),
     ).rejects.toMatchObject({ code: "batch_cap_manifest_invalid" });
 
     await expect(
@@ -305,9 +305,7 @@ describe("claim draft server helpers", () => {
       reclaimUtxo(
         (index + 1).toString(16).padStart(2, "0"),
         0,
-        index === 0 || index === CLAIM_HARD_BATCH_CAP - 1
-          ? CREDENTIAL_1
-          : (index + 1).toString(16).padStart(56, "0"),
+        index === 0 || index === CLAIM_HARD_BATCH_CAP - 1 ? CREDENTIAL_1 : (index + 1).toString(16).padStart(56, "0"),
         index + 1,
       ),
     );
@@ -328,20 +326,13 @@ describe("claim draft server helpers", () => {
 
     expect(draft.batchCap.requested).toBe(CLAIM_HARD_BATCH_CAP);
     expect(draft.orderedInputs).toHaveLength(CLAIM_HARD_BATCH_CAP);
-    expect(
-      draft.orderedInputs.filter((input) => input.paymentCredential === CREDENTIAL_1),
-    ).toHaveLength(2);
+    expect(draft.orderedInputs.filter((input) => input.paymentCredential === CREDENTIAL_1)).toHaveLength(2);
   });
 
   it("preserves manifest-driven capacity above seven for legacy deployments", async () => {
     const legacyCap = CLAIM_HARD_BATCH_CAP + 1;
     const reclaimUtxos = Array.from({ length: legacyCap }, (_, index) =>
-      reclaimUtxo(
-        (index + 1).toString(16).padStart(2, "0"),
-        0,
-        (index + 1).toString(16).padStart(56, "0"),
-        index + 1,
-      ),
+      reclaimUtxo((index + 1).toString(16).padStart(2, "0"), 0, (index + 1).toString(16).padStart(56, "0"), index + 1),
     );
     const provider = providerWith({
       reclaimUtxos,
@@ -421,10 +412,7 @@ describe("claim build and submit fail closed", () => {
     const v2Deployment: ReclaimDeployment = {
       ...STATEMENT_BOUND_V2_DEPLOYMENT,
     };
-    const selected = [
-      reclaimUtxo("01", 0, CREDENTIAL_1, 1),
-      reclaimUtxo("02", 0, CREDENTIAL_1, 2),
-    ];
+    const selected = [reclaimUtxo("01", 0, CREDENTIAL_1, 1), reclaimUtxo("02", 0, CREDENTIAL_1, 2)];
     const provider = providerWith({
       reclaimUtxos: selected,
       selectedUtxos: selected,
@@ -452,8 +440,7 @@ describe("claim build and submit fail closed", () => {
       draft.orderedInputs.map((input) =>
         destinationPublicInputDigest(
           input.paymentCredential,
-          draft.destinationOutputs.find((output) => output.outRefId === input.outRefId)!
-            .destinationAddress,
+          draft.destinationOutputs.find((output) => output.outRefId === input.outRefId)!.destinationAddress,
         ),
       ),
     );
@@ -466,12 +453,7 @@ describe("claim build and submit fail closed", () => {
       reclaimGlobalRewardingCredential: RECLAIM_GLOBAL_SCRIPT,
     });
     const selected = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
-      reclaimUtxo(
-        (index + 1).toString(16).padStart(2, "0"),
-        0,
-        CREDENTIAL_1,
-        index + 1,
-      ),
+      reclaimUtxo((index + 1).toString(16).padStart(2, "0"), 0, CREDENTIAL_1, index + 1),
     );
     const provider = providerWith({
       reclaimUtxos: selected,
@@ -552,9 +534,7 @@ describe("claim build and submit fail closed", () => {
           }
         : redeemer,
     );
-    vi.spyOn(provider, "evaluateTx")
-      .mockResolvedValueOnce(measured)
-      .mockResolvedValueOnce(changed);
+    vi.spyOn(provider, "evaluateTx").mockResolvedValueOnce(measured).mockResolvedValueOnce(changed);
 
     await expect(
       buildClaimTx(provider, deployment, {
@@ -582,7 +562,9 @@ describe("claim build and submit fail closed", () => {
       cpuPercent: 90,
     };
 
-    expect(() => assertMeasuredEvaluationWithinDeploymentMargin(STATEMENT_BOUND_V2_DEPLOYMENT, evaluation)).not.toThrow();
+    expect(() =>
+      assertMeasuredEvaluationWithinDeploymentMargin(STATEMENT_BOUND_V2_DEPLOYMENT, evaluation),
+    ).not.toThrow();
     expect(() =>
       assertMeasuredEvaluationWithinDeploymentMargin(STATEMENT_BOUND_V2_DEPLOYMENT, {
         ...evaluation,
@@ -597,7 +579,9 @@ describe("claim build and submit fail closed", () => {
     ).toThrow(ClaimValidationError);
 
     const { batching: _v2Batching, ...v2WithoutBatching } = STATEMENT_BOUND_V2_DEPLOYMENT;
-    expect(() => assertMeasuredEvaluationWithinDeploymentMargin(v2WithoutBatching, evaluation)).toThrow(ClaimValidationError);
+    expect(() => assertMeasuredEvaluationWithinDeploymentMargin(v2WithoutBatching, evaluation)).toThrow(
+      ClaimValidationError,
+    );
 
     const { batching: _batching, ...legacyWithoutBatching } = DEPLOYMENT;
     expect(() => assertMeasuredEvaluationWithinDeploymentMargin(legacyWithoutBatching, evaluation)).not.toThrow();
@@ -922,11 +906,14 @@ describe("claim build and submit fail closed", () => {
       safeUtxos: [safeUtxo()],
       paramsUtxo: null,
     });
-    const draft = await selectedDraft(providerWith({
-      reclaimUtxos: [selected],
-      selectedUtxos: [selected],
-      safeUtxos: [safeUtxo()],
-    }), selected);
+    const draft = await selectedDraft(
+      providerWith({
+        reclaimUtxos: [selected],
+        selectedUtxos: [selected],
+        safeUtxos: [safeUtxo()],
+      }),
+      selected,
+    );
 
     await expect(
       validateClaimBuildRequest(provider, DEPLOYMENT, {
@@ -1142,7 +1129,10 @@ function providerWith(input: {
 function preprodProtocolParameters() {
   const snapshot = JSON.parse(
     readFileSync(
-      path.resolve(process.cwd(), "../../contracts/ownership-verifier/bench/results/preprod-protocol-v11-epoch-300.json"),
+      path.resolve(
+        process.cwd(),
+        "../../contracts/ownership-verifier/bench/results/preprod-protocol-v11-epoch-300.json",
+      ),
       "utf8",
     ),
   ) as {
@@ -1187,7 +1177,10 @@ function proofArtifact(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function selectedDraft(provider: Provider, ...args: Array<UTxO | ReclaimDeployment>): Promise<ClaimDraftResponse> {
+async function selectedDraft(
+  provider: Provider,
+  ...args: Array<UTxO | ReclaimDeployment>
+): Promise<ClaimDraftResponse> {
   const maybeDeployment = args.at(-1);
   const deployment = isDeployment(maybeDeployment) ? maybeDeployment : DEPLOYMENT;
   const selected = (isDeployment(maybeDeployment) ? args.slice(0, -1) : args) as UTxO[];

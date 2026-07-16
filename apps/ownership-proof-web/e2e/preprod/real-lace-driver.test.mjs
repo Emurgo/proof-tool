@@ -126,7 +126,10 @@ function words(prefix, count) {
     "kitten",
     "ladder",
   ];
-  return suffixes.slice(0, count).map((suffix) => `${prefix}${suffix}`).join(" ");
+  return suffixes
+    .slice(0, count)
+    .map((suffix) => `${prefix}${suffix}`)
+    .join(" ");
 }
 
 function deriveRoleState({ role, mnemonic, label }) {

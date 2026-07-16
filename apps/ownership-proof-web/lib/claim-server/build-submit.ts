@@ -40,14 +40,15 @@ import {
   ClaimValidationError,
   outRefToString,
 } from "../claim/validation";
-import { assertWalletAddresses, assertWalletAddress, assertWalletNetwork, assetMapToStringMap } from "../reclaim/validation";
+import {
+  assertWalletAddresses,
+  assertWalletAddress,
+  assertWalletNetwork,
+  assetMapToStringMap,
+} from "../reclaim/validation";
 import { createClaimDraft } from "./draft";
 import { assembleTransactionWithWitnessSet } from "../cardano/transactions";
-import {
-  buildBatchTranscriptV2,
-  decodeBlake2b256,
-  decodeHexBytes,
-} from "../reclaim/batch-transcript";
+import { buildBatchTranscriptV2, decodeBlake2b256, decodeHexBytes } from "../reclaim/batch-transcript";
 
 const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v2/bls12-381/groth16";
 const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
@@ -55,9 +56,11 @@ const DESTINATION_PUBLIC_INPUT_ENCODING = "single-credential-destination-v1";
 const CARDANO_PROOF_FORMAT = "groth16-bls12-381-bsb22";
 const PROOF_SCHEMA = "root-ownership-proof-artifact-v1";
 const STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING = "full-proof-plus-public-input-digest-v2";
-const validatorToScriptHash = (LucidExports as unknown as {
-  validatorToScriptHash: (script: NonNullable<UTxO["scriptRef"]>) => string;
-}).validatorToScriptHash;
+const validatorToScriptHash = (
+  LucidExports as unknown as {
+    validatorToScriptHash: (script: NonNullable<UTxO["scriptRef"]>) => string;
+  }
+).validatorToScriptHash;
 
 type ClaimReferenceScriptRole = "reclaim_base" | "reclaim_global";
 
@@ -153,7 +156,11 @@ export async function buildClaimTx(
   );
   const orderedOutrefs = claimTransactionInputOrder(preflight.selectedOutrefs);
   const orderedReclaimUtxos = orderUtxosByOutRef(buildInputs.reclaimUtxos, orderedOutrefs);
-  const orderedDestinationOutputs = orderByOutRef(preflight.destinationOutputs, orderedOutrefs, (output) => output.outRefId);
+  const orderedDestinationOutputs = orderByOutRef(
+    preflight.destinationOutputs,
+    orderedOutrefs,
+    (output) => output.outRefId,
+  );
   const proofByOutRef = new Map(preflight.proofSummaries.map((proof) => [proof.outRefId, proof]));
   const destinationOutputStartIndex = 0;
   const globalRedeemer = reclaimGlobalRedeemerBuilder({
@@ -199,12 +206,15 @@ export async function buildClaimTx(
   }
 
   const completionRedeemers = completionEvaluator.result();
-  const evaluationRedeemers = await provider.evaluateTx(txCbor, dedupeUtxos([
-    ...buildInputs.safeWalletUtxos,
-    ...orderedReclaimUtxos,
-    buildInputs.paramsUtxo,
-    ...buildInputs.referenceScriptUtxos,
-  ]));
+  const evaluationRedeemers = await provider.evaluateTx(
+    txCbor,
+    dedupeUtxos([
+      ...buildInputs.safeWalletUtxos,
+      ...orderedReclaimUtxos,
+      buildInputs.paramsUtxo,
+      ...buildInputs.referenceScriptUtxos,
+    ]),
+  );
   if (!Array.isArray(evaluationRedeemers) || (isStatementBoundV2(deployment) && evaluationRedeemers.length === 0)) {
     throw new ClaimValidationError(
       "claim_evaluation_unavailable",
@@ -233,7 +243,10 @@ export async function buildClaimTx(
     proofDigests: orderedOutrefs.map((outRefIdValue) => {
       const proof = proofByOutRef.get(outRefIdValue);
       if (!proof) {
-        throw new ClaimValidationError("proof_artifacts_count", "Proof artifact count must match selected reclaim inputs.");
+        throw new ClaimValidationError(
+          "proof_artifacts_count",
+          "Proof artifact count must match selected reclaim inputs.",
+        );
       }
       return {
         outRefId: proof.outRefId,
@@ -282,7 +295,10 @@ export async function prepareClaimBuildPreflight(
     safeWalletAddresses: raw.safeWalletAddresses,
   });
   if (draft.draftId !== draftId) {
-    throw new ClaimValidationError("claim_draft_stale", "Claim draft no longer matches current chain data and safe-wallet destination.");
+    throw new ClaimValidationError(
+      "claim_draft_stale",
+      "Claim draft no longer matches current chain data and safe-wallet destination.",
+    );
   }
 
   const proofs = assertProofArtifacts(raw.proofArtifacts, draft, deployment.verifierVkHash);
@@ -420,13 +436,22 @@ export function validateClaimSubmitRequest(deployment: ReclaimDeployment, reques
     assertCborHex(raw.witnessSetCbor, "witnessSetCbor");
   }
   if (typeof raw.claimBuildReviewToken !== "string" || raw.claimBuildReviewToken.trim() === "") {
-    throw new ClaimValidationError("claim_submit_review_required", "Claim submit requires a reviewed claim build token.");
+    throw new ClaimValidationError(
+      "claim_submit_review_required",
+      "Claim submit requires a reviewed claim build token.",
+    );
   }
   if (!raw.review) {
-    throw new ClaimValidationError("claim_submit_review_required", "Claim submit requires the reviewed claim build summary.");
+    throw new ClaimValidationError(
+      "claim_submit_review_required",
+      "Claim submit requires the reviewed claim build summary.",
+    );
   }
   if (!raw.signedTxCbor && (!raw.unsignedTxCbor || !raw.witnessSetCbor)) {
-    throw new ClaimValidationError("claim_submit_signed_tx_required", "Claim submit requires signedTxCbor or unsignedTxCbor plus witnessSetCbor.");
+    throw new ClaimValidationError(
+      "claim_submit_signed_tx_required",
+      "Claim submit requires signedTxCbor or unsignedTxCbor plus witnessSetCbor.",
+    );
   }
 }
 
@@ -448,7 +473,10 @@ export async function submitClaimTx(
     );
   }
   if (submittedHash !== inspection.txHash) {
-    throw new ClaimValidationError("claim_submit_hash_mismatch", "Provider returned a transaction hash that does not match the reviewed claim transaction.");
+    throw new ClaimValidationError(
+      "claim_submit_hash_mismatch",
+      "Provider returned a transaction hash that does not match the reviewed claim transaction.",
+    );
   }
   return {
     txHash: submittedHash,
@@ -468,9 +496,16 @@ function assertDraftId(value: unknown): string {
   return assertHex(value, "draftId");
 }
 
-function assertProofArtifacts(value: unknown, draft: ClaimDraftResponse, expectedVkHash: string): NormalizedProofArtifact[] {
+function assertProofArtifacts(
+  value: unknown,
+  draft: ClaimDraftResponse,
+  expectedVkHash: string,
+): NormalizedProofArtifact[] {
   if (!Array.isArray(value)) {
-    throw new ClaimValidationError("proof_artifacts_invalid", "Claim build requires destination-bound proof artifacts.");
+    throw new ClaimValidationError(
+      "proof_artifacts_invalid",
+      "Claim build requires destination-bound proof artifacts.",
+    );
   }
   if (value.length !== draft.orderedInputs.length) {
     throw new ClaimValidationError("proof_artifacts_count", "Proof artifact count must match selected reclaim inputs.");
@@ -480,20 +515,36 @@ function assertProofArtifacts(value: unknown, draft: ClaimDraftResponse, expecte
     const expectedInput = draft.orderedInputs[index];
     const expectedOutput = draft.destinationOutputs[index];
     if (!expectedInput || !expectedOutput) {
-      throw new ClaimValidationError("proof_artifacts_count", "Proof artifact count must match selected reclaim inputs.");
+      throw new ClaimValidationError(
+        "proof_artifacts_count",
+        "Proof artifact count must match selected reclaim inputs.",
+      );
     }
 
     const raw = assertObject(artifact, `proofArtifacts[${index}]`);
     if (raw.path !== undefined || raw.paths !== undefined) {
-      throw new ClaimValidationError("proof_artifact_path_metadata", "Backend-bound proof artifacts must not include derivation path metadata.");
+      throw new ClaimValidationError(
+        "proof_artifact_path_metadata",
+        "Backend-bound proof artifacts must not include derivation path metadata.",
+      );
     }
     const outRefIdValue = raw.out_ref ?? raw.outRef ?? raw.outRefId;
-    if (outRefIdValue !== undefined && outRefIdValue !== null && artifactOutRefId(outRefIdValue, `proofArtifacts[${index}].out_ref`) !== expectedInput.outRefId) {
-      throw new ClaimValidationError("proof_artifact_outref_order", "Proof artifact out_ref must match backend draft order.");
+    if (
+      outRefIdValue !== undefined &&
+      outRefIdValue !== null &&
+      artifactOutRefId(outRefIdValue, `proofArtifacts[${index}].out_ref`) !== expectedInput.outRefId
+    ) {
+      throw new ClaimValidationError(
+        "proof_artifact_outref_order",
+        "Proof artifact out_ref must match backend draft order.",
+      );
     }
     const body = assertObject(raw.artifact ?? raw, `proofArtifacts[${index}].artifact`);
     if (body.path !== undefined || body.paths !== undefined) {
-      throw new ClaimValidationError("proof_artifact_path_metadata", "Backend-bound proof artifacts must not include derivation path metadata.");
+      throw new ClaimValidationError(
+        "proof_artifact_path_metadata",
+        "Backend-bound proof artifacts must not include derivation path metadata.",
+      );
     }
     if (body.schema !== PROOF_SCHEMA) {
       throw new ClaimValidationError("proof_artifact_schema", "Proof artifact schema is not supported.");
@@ -502,32 +553,56 @@ function assertProofArtifacts(value: unknown, draft: ClaimDraftResponse, expecte
       throw new ClaimValidationError("proof_artifact_circuit", "Proof artifact circuit id is not destination-bound.");
     }
     if (body.vk_hash !== expectedVkHash) {
-      throw new ClaimValidationError("proof_artifact_vk_hash", "Proof artifact verifier key hash does not match deployment.");
+      throw new ClaimValidationError(
+        "proof_artifact_vk_hash",
+        "Proof artifact verifier key hash does not match deployment.",
+      );
     }
     if (body.target_credential !== expectedInput.paymentCredential) {
-      throw new ClaimValidationError("proof_artifact_target_credential", "Proof artifact target credential does not match the ordered reclaim datum.");
+      throw new ClaimValidationError(
+        "proof_artifact_target_credential",
+        "Proof artifact target credential does not match the ordered reclaim datum.",
+      );
     }
     if (body.destination_address_encoding !== DESTINATION_ADDRESS_V1_ENCODING) {
-      throw new ClaimValidationError("proof_artifact_destination_encoding", "Proof artifact destination encoding is not supported.");
+      throw new ClaimValidationError(
+        "proof_artifact_destination_encoding",
+        "Proof artifact destination encoding is not supported.",
+      );
     }
     if (body.destination_address !== expectedOutput.destinationAddress) {
-      throw new ClaimValidationError("proof_artifact_destination", "Proof artifact destination does not match the backend-computed destination.");
+      throw new ClaimValidationError(
+        "proof_artifact_destination",
+        "Proof artifact destination does not match the backend-computed destination.",
+      );
     }
     if (body.public_input_encoding !== DESTINATION_PUBLIC_INPUT_ENCODING) {
-      throw new ClaimValidationError("proof_artifact_public_input_encoding", "Proof artifact public input encoding is not supported.");
+      throw new ClaimValidationError(
+        "proof_artifact_public_input_encoding",
+        "Proof artifact public input encoding is not supported.",
+      );
     }
     const cardano = assertObject(body.cardano, `proofArtifacts[${index}].artifact.cardano`);
     if (cardano.format !== CARDANO_PROOF_FORMAT) {
-      throw new ClaimValidationError("proof_artifact_cardano_format", "Proof artifact Cardano proof format is not supported.");
+      throw new ClaimValidationError(
+        "proof_artifact_cardano_format",
+        "Proof artifact Cardano proof format is not supported.",
+      );
     }
     const proofHex = assertHex(cardano.proof_hex, `proofArtifacts[${index}].artifact.cardano.proof_hex`);
     const publicInputDigestHex = assertHex(
       cardano.public_input_digest_hex,
       `proofArtifacts[${index}].artifact.cardano.public_input_digest_hex`,
     );
-    const expectedDigest = destinationPublicInputDigest(expectedInput.paymentCredential, expectedOutput.destinationAddress);
+    const expectedDigest = destinationPublicInputDigest(
+      expectedInput.paymentCredential,
+      expectedOutput.destinationAddress,
+    );
     if (publicInputDigestHex !== expectedDigest) {
-      throw new ClaimValidationError("proof_artifact_public_input_digest", "Proof artifact public input digest does not match credential and destination.");
+      throw new ClaimValidationError(
+        "proof_artifact_public_input_digest",
+        "Proof artifact public input digest does not match credential and destination.",
+      );
     }
 
     return {
@@ -587,18 +662,10 @@ function makeReclaimGlobalRedeemer(
       publicInputDigests.map((digest, index) => decodeHexBytes(digest, `reclaim v2 public input digest ${index}`)),
     );
     return Data.to(
-      new Constr(0, [
-        BigInt(paramsIdx),
-        BigInt(destinationOutputStartIndex),
-        fullProofs,
-        publicInputDigests,
-      ]),
+      new Constr(0, [BigInt(paramsIdx), BigInt(destinationOutputStartIndex), fullProofs, publicInputDigests]),
     );
   }
-  const proofSlots = encodeReclaimProofSlots(
-    fullProofs,
-    proofSlotEncoding === "bytes-empty-same-as-previous-v1",
-  );
+  const proofSlots = encodeReclaimProofSlots(fullProofs, proofSlotEncoding === "bytes-empty-same-as-previous-v1");
   return Data.to(new Constr(0, [BigInt(paramsIdx), BigInt(destinationOutputStartIndex), proofSlots]));
 }
 
@@ -607,7 +674,10 @@ async function loadParamsReferenceInput(
   deployment: ReclaimDeployment,
 ): Promise<ClaimBuildPreflight["paramsReferenceInput"]> {
   if (!deployment.paramsUtxo) {
-    throw new ClaimValidationError("claim_params_missing", "Reclaim deployment is missing the parameter reference UTxO.");
+    throw new ClaimValidationError(
+      "claim_params_missing",
+      "Reclaim deployment is missing the parameter reference UTxO.",
+    );
   }
   const outRef = {
     txHash: deployment.paramsUtxo.tx_hash,
@@ -630,22 +700,37 @@ async function loadParamsReferenceInput(
 function assertParamsUtxo(utxo: UTxO, deployment: ReclaimDeployment): void {
   const params = deployment.paramsUtxo;
   if (!params) {
-    throw new ClaimValidationError("claim_params_missing", "Reclaim deployment is missing the parameter reference UTxO.");
+    throw new ClaimValidationError(
+      "claim_params_missing",
+      "Reclaim deployment is missing the parameter reference UTxO.",
+    );
   }
   if (utxo.address !== params.holder_address) {
-    throw new ClaimValidationError("claim_params_wrong_address", "Parameter reference UTxO is not at the configured holder address.");
+    throw new ClaimValidationError(
+      "claim_params_wrong_address",
+      "Parameter reference UTxO is not at the configured holder address.",
+    );
   }
   const unit = `${params.policy_id}${params.token_name}`;
   if (utxo.assets[unit] !== 1n) {
-    throw new ClaimValidationError("claim_params_token_missing", "Parameter reference UTxO does not contain exactly one configured parameter NFT.");
+    throw new ClaimValidationError(
+      "claim_params_token_missing",
+      "Parameter reference UTxO does not contain exactly one configured parameter NFT.",
+    );
   }
   for (const [assetUnit, amount] of Object.entries(utxo.assets)) {
     if (assetUnit !== "lovelace" && assetUnit.startsWith(params.policy_id) && (assetUnit !== unit || amount !== 1n)) {
-      throw new ClaimValidationError("claim_params_token_mismatch", "Parameter reference UTxO contains unexpected tokens under the parameter policy.");
+      throw new ClaimValidationError(
+        "claim_params_token_mismatch",
+        "Parameter reference UTxO contains unexpected tokens under the parameter policy.",
+      );
     }
   }
   if (!paramsDatumBindsReclaimBase(utxo.datum, deployment.reclaimBaseScriptHash)) {
-    throw new ClaimValidationError("claim_params_datum_mismatch", "Parameter reference datum does not bind the configured ReclaimBase script hash.");
+    throw new ClaimValidationError(
+      "claim_params_datum_mismatch",
+      "Parameter reference datum does not bind the configured ReclaimBase script hash.",
+    );
   }
 }
 
@@ -674,7 +759,9 @@ async function loadClaimBuildInputs(
   safeWalletChangeAddress: string,
   safeWalletAddresses: string[],
 ): Promise<ClaimBuildInputs> {
-  const selectedOutrefs = preflight.selectedOutrefs.map((outRefIdValue) => assertOutRef(outRefIdValue, "selectedOutrefs"));
+  const selectedOutrefs = preflight.selectedOutrefs.map((outRefIdValue) =>
+    assertOutRef(outRefIdValue, "selectedOutrefs"),
+  );
   const selectedIds = new Set(preflight.selectedOutrefs);
   const loadedSelected = await provider.getUtxosByOutRef(selectedOutrefs);
   const reclaimUtxos = loadedSelected.filter((utxo) => selectedIds.has(outRefToString(utxo)));
@@ -693,18 +780,27 @@ async function loadClaimBuildInputs(
   }
   assertParamsUtxo(paramsUtxo, deployment);
 
-  const referenceScriptOutrefs = preflight.referenceScripts.inputs.map((input) => assertOutRef(input.outRefId, "referenceScripts.inputs.outRefId"));
+  const referenceScriptOutrefs = preflight.referenceScripts.inputs.map((input) =>
+    assertOutRef(input.outRefId, "referenceScripts.inputs.outRefId"),
+  );
   const loadedReferenceScripts = await provider.getUtxosByOutRef(referenceScriptOutrefs);
   const referenceScriptUtxos = orderUtxosByOutRef(
     loadedReferenceScripts,
     preflight.referenceScripts.inputs.map((input) => input.outRefId),
   );
   for (const input of preflight.referenceScripts.inputs) {
-    const referenceScript = input.role === "reclaim_base" ? deployment.referenceScripts?.reclaimBase : deployment.referenceScripts?.reclaimGlobal;
-    const expectedScriptHash = input.role === "reclaim_base" ? deployment.reclaimBaseScriptHash : deployment.reclaimGlobalScriptHash;
+    const referenceScript =
+      input.role === "reclaim_base"
+        ? deployment.referenceScripts?.reclaimBase
+        : deployment.referenceScripts?.reclaimGlobal;
+    const expectedScriptHash =
+      input.role === "reclaim_base" ? deployment.reclaimBaseScriptHash : deployment.reclaimGlobalScriptHash;
     const utxo = referenceScriptUtxos.find((candidate) => outRefToString(candidate) === input.outRefId);
     if (!referenceScript || !utxo) {
-      throw new ClaimValidationError("claim_reference_script_not_found", `${input.role} reference script UTxO is spent or unavailable.`);
+      throw new ClaimValidationError(
+        "claim_reference_script_not_found",
+        `${input.role} reference script UTxO is spent or unavailable.`,
+      );
     }
     assertReferenceScriptUtxo(input.role, utxo, referenceScript, expectedScriptHash);
   }
@@ -718,9 +814,16 @@ async function loadClaimBuildInputs(
   };
 }
 
-function assertReclaimUtxoMatchesPreflight(utxo: UTxO, deployment: ReclaimDeployment, preflight: ClaimBuildPreflight): void {
+function assertReclaimUtxoMatchesPreflight(
+  utxo: UTxO,
+  deployment: ReclaimDeployment,
+  preflight: ClaimBuildPreflight,
+): void {
   if (utxo.address !== deployment.reclaimBaseAddress) {
-    throw new ClaimValidationError("selected_outref_wrong_address", "Selected outref is not locked at the current ReclaimBase address.");
+    throw new ClaimValidationError(
+      "selected_outref_wrong_address",
+      "Selected outref is not locked at the current ReclaimBase address.",
+    );
   }
   const outRefIdValue = outRefToString(utxo);
   const expectedOutput = preflight.destinationOutputs.find((output) => output.outRefId === outRefIdValue);
@@ -732,17 +835,27 @@ function assertReclaimUtxoMatchesPreflight(utxo: UTxO, deployment: ReclaimDeploy
   }
 }
 
-async function loadSafeWalletUtxos(provider: Provider, changeAddress: string, walletAddresses: string[]): Promise<UTxO[]> {
+async function loadSafeWalletUtxos(
+  provider: Provider,
+  changeAddress: string,
+  walletAddresses: string[],
+): Promise<UTxO[]> {
   const queryAddresses = [...new Set([changeAddress, ...walletAddresses])];
   const utxoGroups = await Promise.all(queryAddresses.map((address) => provider.getUtxos(address)));
   const utxos = dedupeUtxos(utxoGroups.flat());
   if (utxos.length === 0) {
-    throw new ClaimValidationError("safe_wallet_lovelace_unavailable", "Safe wallet must have UTxOs available for claim fees and collateral.");
+    throw new ClaimValidationError(
+      "safe_wallet_lovelace_unavailable",
+      "Safe wallet must have UTxOs available for claim fees and collateral.",
+    );
   }
   return utxos;
 }
 
-async function loadClaimReferenceScripts(provider: Provider, deployment: ReclaimDeployment): Promise<ClaimReferenceScriptsPreflight> {
+async function loadClaimReferenceScripts(
+  provider: Provider,
+  deployment: ReclaimDeployment,
+): Promise<ClaimReferenceScriptsPreflight> {
   const missing = missingReferenceScriptArtifacts(deployment);
   if (missing.length > 0) {
     return {
@@ -754,7 +867,10 @@ async function loadClaimReferenceScripts(provider: Provider, deployment: Reclaim
 
   const configured = deployment.referenceScripts;
   if (!configured) {
-    throw new ClaimValidationError("claim_reference_scripts_missing", "Reclaim deployment is missing claim reference script metadata.");
+    throw new ClaimValidationError(
+      "claim_reference_scripts_missing",
+      "Reclaim deployment is missing claim reference script metadata.",
+    );
   }
   const expected = [
     {
@@ -773,7 +889,10 @@ async function loadClaimReferenceScripts(provider: Provider, deployment: Reclaim
     const outRefIdValue = referenceScriptOutRefId(entry.referenceScript);
     const utxo = utxos.find((candidate) => outRefToString(candidate) === outRefIdValue);
     if (!utxo) {
-      throw new ClaimValidationError("claim_reference_script_not_found", `${entry.role} reference script UTxO is spent or unavailable.`);
+      throw new ClaimValidationError(
+        "claim_reference_script_not_found",
+        `${entry.role} reference script UTxO is spent or unavailable.`,
+      );
     }
     return assertReferenceScriptUtxo(entry.role, utxo, entry.referenceScript, entry.expectedScriptHash);
   });
@@ -815,20 +934,32 @@ function assertReferenceScriptUtxo(
 ): ClaimReferenceScriptInput {
   const outRefIdValue = referenceScriptOutRefId(referenceScript);
   if (referenceScript.holder_address && utxo.address !== referenceScript.holder_address) {
-    throw new ClaimValidationError("claim_reference_script_wrong_address", `${role} reference script UTxO is not at the configured holder address.`);
+    throw new ClaimValidationError(
+      "claim_reference_script_wrong_address",
+      `${role} reference script UTxO is not at the configured holder address.`,
+    );
   }
   if (referenceScript.script_hash !== expectedScriptHash) {
-    throw new ClaimValidationError("claim_reference_script_hash_mismatch", `${role} reference script hash does not match deployment script hash.`);
+    throw new ClaimValidationError(
+      "claim_reference_script_hash_mismatch",
+      `${role} reference script hash does not match deployment script hash.`,
+    );
   }
   if (!utxo.scriptRef) {
-    throw new ClaimValidationError("claim_reference_script_missing_script_ref", `${role} reference script UTxO is missing a reference script.`);
+    throw new ClaimValidationError(
+      "claim_reference_script_missing_script_ref",
+      `${role} reference script UTxO is missing a reference script.`,
+    );
   }
   if (utxo.scriptRef.type !== "PlutusV3") {
     throw new ClaimValidationError("claim_reference_script_wrong_type", `${role} reference script must be PlutusV3.`);
   }
   const actualScriptHash = referenceScriptHash(role, utxo.scriptRef);
   if (actualScriptHash !== referenceScript.script_hash) {
-    throw new ClaimValidationError("claim_reference_script_hash_mismatch", `${role} reference script hash does not match the scriptRef bytes.`);
+    throw new ClaimValidationError(
+      "claim_reference_script_hash_mismatch",
+      `${role} reference script hash does not match the scriptRef bytes.`,
+    );
   }
   return {
     role,
@@ -863,7 +994,10 @@ function reclaimGlobalRedeemerBuilder(input: {
     const finalReclaimOrder = ctx.inputs
       .filter((utxo) => selected.has(outRefToString(utxo)) && utxo.address === input.deployment.reclaimBaseAddress)
       .map(outRefToString);
-    if (finalReclaimOrder.length !== input.orderedOutrefs.length || finalReclaimOrder.join("|") !== input.orderedOutrefs.join("|")) {
+    if (
+      finalReclaimOrder.length !== input.orderedOutrefs.length ||
+      finalReclaimOrder.join("|") !== input.orderedOutrefs.join("|")
+    ) {
       throw new Error("claim transaction input order changed after destination outputs were fixed");
     }
     const proofs = finalReclaimOrder.map((outRefIdValue) => {
@@ -1002,12 +1136,7 @@ function cloneEvaluation(redeemers: EvalRedeemer[]): EvalRedeemer[] {
   }));
 }
 
-function assertSameEvaluation(
-  expected: EvalRedeemer[],
-  actual: EvalRedeemer[],
-  code: string,
-  message: string,
-): void {
+function assertSameEvaluation(expected: EvalRedeemer[], actual: EvalRedeemer[], code: string, message: string): void {
   const normalizedExpected = normalizeEvaluation(expected, code, message);
   const normalizedActual = normalizeEvaluation(actual, code, message);
   if (stableStringify(normalizedExpected) !== stableStringify(normalizedActual)) {
@@ -1054,7 +1183,14 @@ function normalizeEvaluation(redeemers: EvalRedeemer[], code: string, message: s
 }
 
 function isEvaluationTag(value: unknown): value is EvalRedeemer["redeemer_tag"] {
-  return value === "spend" || value === "mint" || value === "publish" || value === "withdraw" || value === "vote" || value === "propose";
+  return (
+    value === "spend" ||
+    value === "mint" ||
+    value === "publish" ||
+    value === "withdraw" ||
+    value === "vote" ||
+    value === "propose"
+  );
 }
 
 function assertTransactionEvaluationBudgets(txCbor: string, evaluated: EvalRedeemer[]): void {
@@ -1109,11 +1245,7 @@ function transactionEvaluationRedeemers(txCbor: string): EvalRedeemer[] {
   return result;
 }
 
-function evaluationRedeemerFromCml(
-  tag: CML.RedeemerTag,
-  index: bigint,
-  exUnits: CML.ExUnits,
-): EvalRedeemer {
+function evaluationRedeemerFromCml(tag: CML.RedeemerTag, index: bigint, exUnits: CML.ExUnits): EvalRedeemer {
   const redeemerIndex = safeEvaluationNumber(index);
   return {
     redeemer_tag: evaluationTagFromCml(tag),
@@ -1220,10 +1352,16 @@ export function assertMeasuredEvaluationWithinDeploymentMargin(
     return;
   }
   if (evaluation.memoryPercent > batching.max_tx_mem_percent) {
-    throw new ClaimValidationError("claim_evaluation_margin_exceeded", "Claim transaction memory execution units exceed the configured deployment margin.");
+    throw new ClaimValidationError(
+      "claim_evaluation_margin_exceeded",
+      "Claim transaction memory execution units exceed the configured deployment margin.",
+    );
   }
   if (evaluation.cpuPercent > batching.max_tx_cpu_percent) {
-    throw new ClaimValidationError("claim_evaluation_margin_exceeded", "Claim transaction CPU execution units exceed the configured deployment margin.");
+    throw new ClaimValidationError(
+      "claim_evaluation_margin_exceeded",
+      "Claim transaction CPU execution units exceed the configured deployment margin.",
+    );
   }
 }
 
@@ -1296,17 +1434,26 @@ async function inspectClaimSubmitRequest(
   const review = assertClaimBuildReview(request.review, deployment);
   const selectedOutrefs = assertOutRefList(request.selectedOutrefs, "selectedOutrefs").map(outRefToString);
   if (selectedOutrefs.join("|") !== review.selectedOutrefs.join("|")) {
-    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim submit selected outrefs do not match the reviewed claim build.");
+    throw new ClaimValidationError(
+      "claim_submit_review_mismatch",
+      "Claim submit selected outrefs do not match the reviewed claim build.",
+    );
   }
   const reviewHash = hashClaimBuildReview(review);
   const token = verifyClaimBuildReviewToken(deployment, request.claimBuildReviewToken);
   if (token.reviewHash !== reviewHash) {
-    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token does not match the reviewed claim build summary.");
+    throw new ClaimValidationError(
+      "claim_submit_review_mismatch",
+      "Claim build review token does not match the reviewed claim build summary.",
+    );
   }
 
   const unsignedTxCbor = request.unsignedTxCbor ? assertCborHex(request.unsignedTxCbor, "unsignedTxCbor") : "";
   if (unsignedTxCbor && token.txCborHash !== sha256Hex(unsignedTxCbor)) {
-    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token does not match the reviewed unsigned transaction.");
+    throw new ClaimValidationError(
+      "claim_submit_review_mismatch",
+      "Claim build review token does not match the reviewed unsigned transaction.",
+    );
   }
 
   const signedTxCbor = request.signedTxCbor
@@ -1314,12 +1461,18 @@ async function inspectClaimSubmitRequest(
     : assembleClaimWitnessSet(unsignedTxCbor, request.witnessSetCbor);
   const signedTxHash = parseTransactionHash(signedTxCbor, "signedTxCbor");
   if (signedTxHash !== token.txHash) {
-    throw new ClaimValidationError("claim_submit_review_mismatch", "Signed claim transaction body does not match the reviewed build.");
+    throw new ClaimValidationError(
+      "claim_submit_review_mismatch",
+      "Signed claim transaction body does not match the reviewed build.",
+    );
   }
   if (unsignedTxCbor) {
     const unsignedTxHash = parseTransactionHash(unsignedTxCbor, "unsignedTxCbor");
     if (unsignedTxHash !== signedTxHash) {
-      throw new ClaimValidationError("claim_submit_review_mismatch", "Signed claim transaction body does not match unsignedTxCbor.");
+      throw new ClaimValidationError(
+        "claim_submit_review_mismatch",
+        "Signed claim transaction body does not match unsignedTxCbor.",
+      );
     }
   }
 
@@ -1333,7 +1486,10 @@ async function inspectClaimSubmitRequest(
 
 function assembleClaimWitnessSet(unsignedTxCbor: string, witnessSetCbor: unknown): string {
   if (!unsignedTxCbor) {
-    throw new ClaimValidationError("claim_submit_signed_tx_required", "Claim submit requires unsignedTxCbor when witnessSetCbor is provided.");
+    throw new ClaimValidationError(
+      "claim_submit_signed_tx_required",
+      "Claim submit requires unsignedTxCbor when witnessSetCbor is provided.",
+    );
   }
   const witnessSet = assertCborHex(witnessSetCbor, "witnessSetCbor");
   return assembleTransactionWithWitnessSet(unsignedTxCbor, witnessSet);
@@ -1344,18 +1500,29 @@ function assertClaimBuildReview(value: unknown, deployment: ReclaimDeployment): 
   assertExactDeploymentId(review.deploymentId, deployment.id);
   assertDraftId(review.draftId);
   const selectedOutrefs = assertOutRefList(review.selectedOutrefs, "review.selectedOutrefs").map(outRefToString);
-  const transactionInputOrder = assertOutRefList(review.transactionInputOrder, "review.transactionInputOrder").map(outRefToString);
+  const transactionInputOrder = assertOutRefList(review.transactionInputOrder, "review.transactionInputOrder").map(
+    outRefToString,
+  );
   if (selectedOutrefs.length === 0 || transactionInputOrder.length !== selectedOutrefs.length) {
     throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review input order is malformed.");
   }
   if (!Number.isInteger(review.destinationOutputStartIndex) || review.destinationOutputStartIndex < 0) {
-    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review destination output index is malformed.");
+    throw new ClaimValidationError(
+      "claim_submit_review_mismatch",
+      "Claim build review destination output index is malformed.",
+    );
   }
   if (!Array.isArray(review.destinationOutputs) || review.destinationOutputs.length !== selectedOutrefs.length) {
-    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review destination outputs are malformed.");
+    throw new ClaimValidationError(
+      "claim_submit_review_mismatch",
+      "Claim build review destination outputs are malformed.",
+    );
   }
   if (!Array.isArray(review.referenceScriptInputs) || review.referenceScriptInputs.length !== 2) {
-    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review reference scripts are malformed.");
+    throw new ClaimValidationError(
+      "claim_submit_review_mismatch",
+      "Claim build review reference scripts are malformed.",
+    );
   }
   if (!Array.isArray(review.proofDigests) || review.proofDigests.length !== selectedOutrefs.length) {
     throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review proof digests are malformed.");
@@ -1368,7 +1535,9 @@ function assertClaimBuildReview(value: unknown, deployment: ReclaimDeployment): 
     destinationOutputStartIndex: review.destinationOutputStartIndex,
     destinationOutputs: review.destinationOutputs,
     paramsReferenceInput: {
-      outRefId: outRefToString(assertOutRef(review.paramsReferenceInput?.outRefId, "review.paramsReferenceInput.outRefId")),
+      outRefId: outRefToString(
+        assertOutRef(review.paramsReferenceInput?.outRefId, "review.paramsReferenceInput.outRefId"),
+      ),
       holderAddress: String(review.paramsReferenceInput?.holderAddress ?? ""),
       datumCbor: assertCborHex(review.paramsReferenceInput?.datumCbor, "review.paramsReferenceInput.datumCbor"),
     },
@@ -1418,10 +1587,22 @@ function verifyClaimBuildReviewToken(
     txCborHash?: unknown;
     reviewHash?: unknown;
   };
-  if (parsed.v !== 1 || parsed.kind !== "claim-build" || parsed.deploymentId !== deployment.id || parsed.network !== deployment.network) {
-    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token was issued for a different deployment.");
+  if (
+    parsed.v !== 1 ||
+    parsed.kind !== "claim-build" ||
+    parsed.deploymentId !== deployment.id ||
+    parsed.network !== deployment.network
+  ) {
+    throw new ClaimValidationError(
+      "claim_submit_review_mismatch",
+      "Claim build review token was issued for a different deployment.",
+    );
   }
-  if (typeof parsed.txHash !== "string" || typeof parsed.txCborHash !== "string" || typeof parsed.reviewHash !== "string") {
+  if (
+    typeof parsed.txHash !== "string" ||
+    typeof parsed.txCborHash !== "string" ||
+    typeof parsed.reviewHash !== "string"
+  ) {
     throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token payload is malformed.");
   }
   return {

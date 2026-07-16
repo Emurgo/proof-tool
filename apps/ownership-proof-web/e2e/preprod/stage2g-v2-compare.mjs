@@ -120,8 +120,7 @@ export async function compareStage2gV2ToBaseline(options = {}) {
     delta_candidate_minus_baseline: {
       memory: (candidateMemory - baselineMemory).toString(),
       cpu: (candidateSteps - baselineSteps).toString(),
-      tx_cbor_bytes:
-        candidate.transaction.tx_cbor_bytes - baseline.transaction.tx_cbor_bytes,
+      tx_cbor_bytes: candidate.transaction.tx_cbor_bytes - baseline.transaction.tx_cbor_bytes,
       memory_percent: signedPercent(candidateMemory - baselineMemory, baselineMemory),
       cpu_percent: signedPercent(candidateSteps - baselineSteps, baselineSteps),
     },
@@ -151,10 +150,7 @@ export async function compareStage2gV2ToBaseline(options = {}) {
 
 export function assertComparisonGate(env) {
   if (process.platform !== "linux") {
-    throw new Stage2gV2ComparisonError(
-      "stage2g_secure_output_unsupported",
-      "Stage 2g comparison requires Linux.",
-    );
+    throw new Stage2gV2ComparisonError("stage2g_secure_output_unsupported", "Stage 2g comparison requires Linux.");
   }
   if ((env[LIVE_GATE_ENV] ?? "").trim() !== "1") {
     throw new Stage2gV2ComparisonError(
@@ -229,10 +225,7 @@ function redactComparisonError(error) {
       /\b(?:authorization|bearer)\b(?:\s*[:=]\s*|\s+)(?:Bearer\s+)?[A-Za-z0-9._~+/-]{20,}={0,2}/giu,
       "[authorization-redacted]",
     )
-    .replace(
-      /\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}(?:\.[A-Za-z0-9_-]{20,})+\b/gu,
-      "[token-redacted]",
-    )
+    .replace(/\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}(?:\.[A-Za-z0-9_-]{20,})+\b/gu, "[token-redacted]")
     .replace(/\b[0-9a-f]{56,}\b/giu, "[hex-redacted]")
     .replace(/\b[A-Za-z0-9+/_=-]{128,}\b/gu, "[token-redacted]")
     .replace(/\s+/gu, " ")
