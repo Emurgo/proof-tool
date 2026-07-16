@@ -6,6 +6,9 @@ import {
 } from "./real-lace-driver.mjs";
 
 export const PREVIEW_URL_ENV = "RECLAIM_E2E_PREVIEW_URL";
+export const TARGET_MODE_ENV = "RECLAIM_E2E_TARGET_MODE";
+export const TARGET_MODE_VERCEL_PREVIEW = "vercel-preview";
+export const TARGET_MODE_LOCAL_PRODUCTION = "local-production";
 export const EXPECTED_COMMIT_SHA_ENV = "RECLAIM_E2E_EXPECTED_COMMIT_SHA";
 export const EXPECTED_PR_NUMBER_ENV = "RECLAIM_E2E_EXPECTED_PR_NUMBER";
 export const PR_MERGE_SHA_ENV = "RECLAIM_E2E_PR_MERGE_SHA";
@@ -49,7 +52,16 @@ export class WebAppClaimFlowContractError extends Error {
 }
 
 export function loadWebAppClaimFlowConfig(env = process.env, options = {}) {
-  const previewUrl = validatePreviewUrl(required(env[PREVIEW_URL_ENV], PREVIEW_URL_ENV));
+  const targetMode = String(env[TARGET_MODE_ENV] ?? TARGET_MODE_VERCEL_PREVIEW).trim().toLowerCase();
+  if (targetMode !== TARGET_MODE_VERCEL_PREVIEW && targetMode !== TARGET_MODE_LOCAL_PRODUCTION) {
+    throw new WebAppClaimFlowContractError(
+      "target_mode_invalid",
+      `${TARGET_MODE_ENV} must be ${TARGET_MODE_VERCEL_PREVIEW} or ${TARGET_MODE_LOCAL_PRODUCTION}.`,
+    );
+  }
+  const previewUrl = targetMode === TARGET_MODE_LOCAL_PRODUCTION
+    ? validateLocalProductionUrl(required(env[PREVIEW_URL_ENV], PREVIEW_URL_ENV))
+    : validatePreviewUrl(required(env[PREVIEW_URL_ENV], PREVIEW_URL_ENV));
   const expectedCommitSha = required(env[EXPECTED_COMMIT_SHA_ENV], EXPECTED_COMMIT_SHA_ENV).toLowerCase();
   if (!/^[0-9a-f]{40}$/u.test(expectedCommitSha)) {
     throw new WebAppClaimFlowContractError(
@@ -108,7 +120,15 @@ export function loadWebAppClaimFlowConfig(env = process.env, options = {}) {
 
   const outputRoot = String(env[OUTPUT_DIR_ENV] ?? "output/preprod-web-app-claim-flow-wasm-lace").trim();
   const runId = `${options.now?.().toISOString().replace(/[:.]/gu, "-") ?? new Date().toISOString().replace(/[:.]/gu, "-")}-${expectedCommitSha.slice(0, 12)}`;
+  const bypassSecret = String(env[VERCEL_BYPASS_SECRET_ENV] ?? "").trim();
+  if (targetMode === TARGET_MODE_LOCAL_PRODUCTION && bypassSecret) {
+    throw new WebAppClaimFlowContractError(
+      "local_vercel_bypass_forbidden",
+      `${VERCEL_BYPASS_SECRET_ENV} must be unset for the localhost production-emulation lane.`,
+    );
+  }
   return Object.freeze({
+    targetMode,
     previewUrl,
     baseUrl: previewUrl.origin,
     expectedCommitSha,
@@ -116,10 +136,35 @@ export function loadWebAppClaimFlowConfig(env = process.env, options = {}) {
     expectedPrNumber,
     fixtureMode,
     expectedOutref: configuredOutref || null,
-    bypassSecret: String(env[VERCEL_BYPASS_SECRET_ENV] ?? "").trim(),
+    bypassSecret,
     outputDir: path.resolve(options.cwd ?? process.cwd(), outputRoot, runId),
     runId,
   });
+}
+
+export function validateLocalProductionUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new WebAppClaimFlowContractError("local_url_invalid", `${PREVIEW_URL_ENV} must be a valid localhost URL.`);
+  }
+  if (
+    url.protocol !== "http:"
+    || url.hostname !== "127.0.0.1"
+    || !url.port
+    || url.username
+    || url.password
+    || url.search
+    || url.hash
+    || url.pathname !== "/"
+  ) {
+    throw new WebAppClaimFlowContractError(
+      "local_url_invalid",
+      `${PREVIEW_URL_ENV} must be an origin-only http://127.0.0.1:<port>/ URL for local production emulation.`,
+    );
+  }
+  return url;
 }
 
 export function validatePreviewUrl(value) {
@@ -152,6 +197,15 @@ export function validatePreviewProvenance(provenance, config) {
   if (!provenance || provenance.schema !== "proof-tool-web-build-provenance-v1") {
     throw new WebAppClaimFlowContractError("preview_provenance_unavailable", "Preview build provenance is missing or has an unsupported schema.");
   }
+  if (config.targetMode === TARGET_MODE_LOCAL_PRODUCTION) {
+    return validateLocalProductionProvenance(provenance, config);
+  }
+  if (provenance.localPreviewEmulation === true) {
+    throw new WebAppClaimFlowContractError(
+      "preview_local_emulation_rejected",
+      "Local Preview emulation can never satisfy the deployed Vercel acceptance lane.",
+    );
+  }
   if (provenance.environment !== "preview") {
     throw new WebAppClaimFlowContractError("preview_is_production", "The target deployment did not report the Vercel Preview environment.");
   }
@@ -183,6 +237,49 @@ export function validatePreviewProvenance(provenance, config) {
     commitSha: provenance.commitSha,
     commitRef: provenance.commitRef ?? null,
     pullRequestId: String(provenance.pullRequestId),
+  });
+}
+
+function validateLocalProductionProvenance(provenance, config) {
+  if (provenance.localPreviewEmulation !== true || provenance.environment !== "preview") {
+    throw new WebAppClaimFlowContractError(
+      "local_provenance_unavailable",
+      "The localhost target must explicitly report local Vercel Preview emulation.",
+    );
+  }
+  const suppliedHost = config.previewUrl.host.toLowerCase();
+  const deploymentHost = normalizeVercelHost(provenance.deploymentUrl);
+  if (!deploymentHost || suppliedHost !== deploymentHost) {
+    throw new WebAppClaimFlowContractError(
+      "local_provenance_host_mismatch",
+      "The localhost origin does not match the production server's emulated VERCEL_URL.",
+    );
+  }
+  if (normalizeVercelHost(provenance.productionUrl) !== PRODUCTION_WEB_HOST) {
+    throw new WebAppClaimFlowContractError(
+      "local_provenance_project_mismatch",
+      "The local build does not emulate the Proof Tool Vercel project identity.",
+    );
+  }
+  if (String(provenance.commitSha ?? "").toLowerCase() !== config.expectedCommitSha) {
+    throw new WebAppClaimFlowContractError(
+      "preview_commit_mismatch",
+      "The local production build does not match the current PR-push commit.",
+    );
+  }
+  if (String(provenance.pullRequestId ?? "") !== String(config.expectedPrNumber)) {
+    throw new WebAppClaimFlowContractError(
+      "preview_pr_mismatch",
+      "The local production build does not match the current pull request.",
+    );
+  }
+  return Object.freeze({
+    environment: provenance.environment,
+    deploymentHost,
+    commitSha: provenance.commitSha,
+    commitRef: provenance.commitRef ?? null,
+    pullRequestId: String(provenance.pullRequestId),
+    localPreviewEmulation: true,
   });
 }
 

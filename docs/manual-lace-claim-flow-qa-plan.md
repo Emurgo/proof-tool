@@ -68,7 +68,8 @@ check as successful.
 Status on 2026-07-16, on a branch based on `origin/main` commit `214dcbb`: the
 dedicated runner, package command, lane-managed fixture preparation,
 provenance route, automatic exact-Preview resolver, focused contract tests,
-Lace role/signing guards, and trusted-runner workflow are implemented. The
+Lace role/signing guards, trusted-runner workflow, and explicit local-production
+PR-push wrapper are implemented. The
 entire lane was also applied to the exact active PR #13 head `448f3b6` and
 verified there, so the current browser-WASM changes have compatibility
 evidence before the live lane runs.
@@ -110,6 +111,7 @@ old Lace smoke command remains unacceptable merge evidence.
 | Screenshots | The runner enforces the ordered nineteen-file ledger and masks phrase/password inputs. | Review the first live artifact bundle for any extension-specific sensitive surface. |
 | Completion | Build/submit responses, receipt hash, exact outref state, and safe destination are cross-checked; provider progress must report the outref spent. | Obtain a real transaction hash and provider confirmation. |
 | PR gate | `preprod-web-app-claim-flow-wasm-lace.yml` automatically resolves the successful Vercel deployment for a same-repository, non-draft PR head, serializes the profile, requires environment approval, and publishes one fail-closed aggregate result. | Configure runner labels/variables/secrets, exercise the automatic trigger on a real PR, and require the stable aggregate job name in `main` protection. |
+| Local PR push | `push-pr-with-local-lace-claim-flow.mjs` builds and serves the current clean commit with production Next commands, performs the same live claim against localhost, rechecks the commit, and pushes only after success. | Run the first live local invocation and retain its nineteen-screen/provider evidence as pre-push confidence, not as deployed-Preview acceptance. |
 
 The generic deterministic lane remains valuable for broad regression coverage.
 It must not be renamed or represented as this real-browser acceptance lane.
@@ -501,6 +503,75 @@ and these secrets:
 - optional `RECLAIM_E2E_VERCEL_BYPASS_SECRET`
 - optional `RECLAIM_KOIOS_TOKEN` or `RECLAIM_BLOCKFROST_PROJECT_ID`
 
+### Local production claim before a PR push
+
+The deployed Vercel lane remains the only merge-gating acceptance result, but a
+maintainer can require the same user journey before updating an existing PR.
+From the repository root, run:
+
+```bash
+node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
+```
+
+Or, from `apps/ownership-proof-web`, run:
+
+```bash
+pnpm push:pr:with-local-claim-flow -- --live-preprod
+```
+
+Use `--remote <name>` after `--live-preprod` when the PR branch is not pushed
+to `origin`. This is intentionally an explicit PR-push command, not a global
+`pre-push` Git hook and not a replacement for ordinary `git push`. The
+`--live-preprod` acknowledgement is required because one invocation prepares
+a fresh locked Preprod fixture and then submits the claim transaction.
+
+The command fails before browser startup unless:
+
+- the worktree is clean and `HEAD` is a full commit;
+- the current branch is named and is neither `main` nor `master`;
+- GitHub reports an existing open PR whose head branch is the current branch;
+- the ignored repository `.env.local` selects the canonical Preprod reclaim
+  manifest; and
+- the ignored dedicated Lace `profile.env` exists with both required wallets.
+
+Linked worktrees automatically look for those two ignored files in the primary
+checkout. They can instead be selected explicitly with
+`RECLAIM_E2E_LOCAL_ENV_FILE` and
+`RECLAIM_E2E_LACE_PROFILE_ENV_FILE`. No value from either file is committed
+or placed in a process argument.
+
+The local lane uses `next build` followed by `next start`, sets only
+non-secret Vercel identity fields for the current commit and PR, and exposes an
+explicit `localPreviewEmulation: true` provenance marker. The deployed lane
+rejects that marker, while the local lane requires it. This prevents localhost
+evidence from being confused with a real Vercel Preview.
+
+The canonical manifest must keep browser-WASM proving enabled and must point
+both the proving key and constraint system at
+`proof-assets.reclaim-proof.com`. Small signed manifests and the WASM runtime
+are served by the production Next build as they are on Vercel; the large proof
+assets stay on the remote R2-backed host. The journey still starts at the
+landing page, creates all nineteen screenshots, signs only with
+`safe_claim_destination`, submits to Preprod, and requires provider-visible
+spent-input and safe-destination confirmation.
+
+After success, the wrapper re-reads the branch, commit, and worktree. If
+anything changed during the long proof, it refuses to push. Otherwise it runs
+a normal non-forced push of that exact `HEAD`. Any build, browser, Lace,
+transaction, provider, or provenance failure leaves the remote branch
+untouched.
+
+For diagnosis without pushing, run the local lane directly:
+
+```bash
+pnpm --dir apps/ownership-proof-web +  test:e2e:preprod:web-app-claim-flow-wasm-lace:local-pr -- +  --live-preprod
+```
+
+Local success is strong pre-push evidence, but it cannot prove that Vercel
+deployed the same commit, applied the correct protection settings, or behaves
+identically in its hosted runtime. PR #14 must still pass the exact deployed
+Preview check before merge.
+
 The normal merge gate needs no operator-supplied URL: opening, reopening,
 updating, or marking a same-repository PR ready for review starts the resolver.
 It polls GitHub's Vercel deployment status for that exact head SHA, then waits
@@ -534,8 +605,8 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
 
 ### Current verification evidence
 
-- The focused resolver/provenance/contract/fixture/provider/Lace/app-server
-  tests pass: 32 tests across seven files.
+- The focused resolver/provenance/contract/fixture/provider/Lace/app-server and
+  local PR-push tests pass: 39 tests across nine files.
 - `pnpm typecheck`, the Next production build, Node syntax checks, YAML parsing,
   direct reclaim-manifest verification, and `git diff --check` pass for the
   current working tree.
@@ -558,9 +629,13 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
   across 45 files, and the production build passed with
   `/claim-api/build-provenance` in the route table. This is compatibility
   evidence only; PR #13's deployed Preview predates this lane.
-- No live Preview/Preprod transaction has been run by this implementation yet.
-  Therefore there is no nineteen-screenshot acceptance bundle, transaction
-  hash, provider confirmation, or branch-protection proof at this status.
+- After adding the local-production PR-push wrapper on PR #14, typecheck passed,
+  the complete web-app suite passed 396 of 396 tests across 47 files, and the
+  production build passed with the provenance route in the route table.
+- The exact deployed Preview merge gate has not completed yet. Therefore there
+  is no deployed-Preview nineteen-screenshot acceptance bundle, transaction
+  hash, provider confirmation, or branch-protection proof at this status; local
+  pre-push evidence cannot fill that gap.
 
 ## Verification Matrix
 

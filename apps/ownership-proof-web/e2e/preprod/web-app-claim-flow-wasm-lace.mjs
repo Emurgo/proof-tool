@@ -52,6 +52,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     status: "running",
     createdAt: now().toISOString(),
     target: {
+      mode: config.targetMode,
       origin: config.baseUrl,
       expectedCommitSha: config.expectedCommitSha,
       expectedPrNumber: config.expectedPrNumber,

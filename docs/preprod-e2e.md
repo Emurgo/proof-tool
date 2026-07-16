@@ -217,6 +217,30 @@ amount/count, batch, poll, timeout, app URL/port, and output-directory controls
 are declared next to the corresponding stage constants; do not duplicate their
 defaults in automation wrappers.
 
+## Running The Local Production PR-Push Lane
+
+To test the complete landing-page-to-confirmed-claim journey before updating an
+existing PR, commit the intended changes and run from the repository root:
+
+```bash
+node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
+```
+
+This command requires a clean non-main branch with an open PR. It loads the
+ignored root `.env.local` and dedicated Lace `profile.env`, runs a production
+`next build`/`next start` server on `127.0.0.1`, and verifies that the
+canonical manifest keeps the proving key and CCS on the approved remote
+R2-backed asset host. It then performs the same real browser-WASM/Lace journey,
+nineteen screenshots, Preprod submission, and provider confirmation as the
+deployed lane.
+
+The wrapper pushes the exact tested commit only after success and refuses to
+push if the branch, commit, or worktree changes while proving. It never uses a
+force push. The explicit `--live-preprod` flag acknowledges that the run funds
+and spends a fresh Preprod fixture. Ordinary `git push` remains unchanged.
+Local success is pre-push confidence only; the exact Vercel Preview workflow is
+still the required merge check.
+
 ## Artifacts And Secret Scan
 
 Runs write under `output/preprod-e2e/<timestamp>-<source-commit>/` (relative to

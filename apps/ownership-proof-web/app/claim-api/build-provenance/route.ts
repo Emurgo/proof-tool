@@ -7,6 +7,7 @@ export function GET() {
   return NextResponse.json(
     {
       schema: "proof-tool-web-build-provenance-v1",
+      localPreviewEmulation: process.env.RECLAIM_LOCAL_VERCEL_PREVIEW_EMULATION === "1",
       environment: stringOrNull(process.env.VERCEL_ENV),
       deploymentUrl: stringOrNull(process.env.VERCEL_URL),
       branchUrl: stringOrNull(process.env.VERCEL_BRANCH_URL),

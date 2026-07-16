@@ -7,6 +7,7 @@ import {
   validateBrowserWasmClaimDeployment,
   validateClaimBuildReview,
   validateClaimSubmit,
+  validateLocalProductionUrl,
   validatePreviewProvenance,
   validatePreviewUrl,
 } from "./web-app-claim-flow-contract.mjs";
@@ -23,6 +24,7 @@ describe("web-app claim flow contract", () => {
     });
 
     expect(config.previewUrl.hostname).toBe(deploymentHost);
+    expect(config.targetMode).toBe("vercel-preview");
     expect(config.expectedCommitSha).toBe(commit);
     expect(config.prMergeSha).toBe("c".repeat(40));
     expect(config.expectedPrNumber).toBe(42);
@@ -54,6 +56,54 @@ describe("web-app claim flow contract", () => {
     expect(() => validatePreviewUrl("https://example.com/")).toThrowError(expect.objectContaining({ code: "preview_url_invalid" }));
     expect(() => validatePreviewUrl(`https://${deploymentHost}/claim`)).toThrowError(expect.objectContaining({ code: "preview_url_invalid" }));
     expect(() => validatePreviewUrl(`https://${deploymentHost}/?secret=value`)).toThrowError(expect.objectContaining({ code: "preview_url_invalid" }));
+  });
+
+  it("accepts only an explicitly marked localhost production emulation", () => {
+    const env = {
+      ...validEnv(),
+      RECLAIM_E2E_TARGET_MODE: "local-production",
+      RECLAIM_E2E_PREVIEW_URL: "http://127.0.0.1:3917/",
+    };
+    const config = loadWebAppClaimFlowConfig(env);
+    expect(config.targetMode).toBe("local-production");
+    expect(validateLocalProductionUrl(env.RECLAIM_E2E_PREVIEW_URL).host).toBe("127.0.0.1:3917");
+    expect(
+      validatePreviewProvenance(
+        {
+          schema: "proof-tool-web-build-provenance-v1",
+          localPreviewEmulation: true,
+          environment: "preview",
+          deploymentUrl: "127.0.0.1:3917",
+          branchUrl: "127.0.0.1:3917",
+          productionUrl: "proof-tool.vercel.app",
+          commitSha: commit,
+          commitRef: "feature",
+          pullRequestId: "42",
+        },
+        config,
+      ),
+    ).toMatchObject({ deploymentHost: "127.0.0.1:3917", localPreviewEmulation: true });
+
+    expect(() => validateLocalProductionUrl("http://localhost:3917/")).toThrowError(
+      expect.objectContaining({ code: "local_url_invalid" }),
+    );
+    expect(() =>
+      loadWebAppClaimFlowConfig({ ...env, RECLAIM_E2E_VERCEL_BYPASS_SECRET: "do-not-forward" }),
+    ).toThrowError(expect.objectContaining({ code: "local_vercel_bypass_forbidden" }));
+    expect(() =>
+      validatePreviewProvenance(
+        {
+          schema: "proof-tool-web-build-provenance-v1",
+          localPreviewEmulation: true,
+          environment: "preview",
+          deploymentUrl: deploymentHost,
+          productionUrl: "proof-tool.vercel.app",
+          commitSha: commit,
+          pullRequestId: "42",
+        },
+        loadWebAppClaimFlowConfig(validEnv()),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "preview_local_emulation_rejected" }));
   });
 
   it("binds the exact immutable deployment host, PR, and commit", () => {
