@@ -135,7 +135,8 @@ async function pairHelperThroughCourier(page, pairingUrl) {
 async function chooseDesktopProofMethod(page) {
   await clickByRole(page, "button", "Choose method");
   await page.getByRole("radio", { name: /Proof Helper Desktop/iu }).click({ timeout: 180_000 });
-  await clickByRole(page, "button", "Cancel");
+  await clickByRole(page, "button", "Continue to desktop app");
+  await clickByRole(page, "button", "Close installer chooser");
 }
 
 async function allowDesktopConnectionIfRequested(page) {
