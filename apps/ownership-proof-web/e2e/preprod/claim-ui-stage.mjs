@@ -48,7 +48,7 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   await selectClaimRole(page, walletHarness, SAFE_WALLET_ROLE);
   await clickByRole(page, "button", "Connect safe wallet");
   await approveWalletConnection(walletHarness, SAFE_WALLET_ROLE);
-  await waitForText(page, "Create proofs");
+  await page.getByRole("button", { name: "Choose method" }).waitFor({ timeout: 180_000 });
   await pairHelperThroughCourier(page, helperPairingUrl.toString());
   await chooseDesktopProofMethod(page);
 

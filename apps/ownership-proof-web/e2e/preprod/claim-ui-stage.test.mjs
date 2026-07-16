@@ -32,6 +32,9 @@ it("clears resumable state and starts a fresh browser claim flow", async () => {
           calls.push(["isVisible", role, name]);
           return name !== "Continue";
         },
+        async waitFor(options) {
+          calls.push(["waitForRole", role, name, options?.timeout ?? null]);
+        },
         async click() {
           calls.push(["click", role, name]);
         },
@@ -100,6 +103,9 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
       return {
         async isVisible() {
           return true;
+        },
+        async waitFor(options) {
+          calls.push(["waitForRole", role, name, options?.timeout ?? null]);
         },
         async click(options) {
           calls.push(["click", role, name, options?.timeout ?? null]);
