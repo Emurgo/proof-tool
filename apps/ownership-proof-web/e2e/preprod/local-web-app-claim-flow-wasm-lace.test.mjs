@@ -3,6 +3,7 @@ import {
   assertLocalPrContext,
   assertRemoteProofAssets,
   createLocalVercelEmulationEnv,
+  pinLocalDeploymentManifest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
 
 const commitSha = "a".repeat(40);
@@ -46,13 +47,13 @@ describe("local production PR claim flow", () => {
         browser_proving: {
           enabled: true,
           pk_url: "https://proof-assets.reclaim-proof.com/proof-assets/release/ownership.pk",
-          ccs_url: "https://proof-assets.reclaim-proof.com/proof-assets/release/ownership-destination.ccs",
+          ccs_url: "https://proof-assets-2m.reclaim-proof.com/proof-assets/release/ownership-destination.ccs",
         },
       },
     };
     expect(assertRemoteProofAssets(manifest)).toEqual({
       pkHost: "proof-assets.reclaim-proof.com",
-      ccsHost: "proof-assets.reclaim-proof.com",
+      ccsHost: "proof-assets-2m.reclaim-proof.com",
     });
     expect(() => assertRemoteProofAssets({
       proof: {
@@ -63,6 +64,23 @@ describe("local production PR claim flow", () => {
         },
       },
     })).toThrowError(expect.objectContaining({ code: "local_remote_proof_assets_missing" }));
+  });
+
+  it("pins the committed Vercel stable-pointer manifest over stale local aliases", () => {
+    const env = pinLocalDeploymentManifest(
+      {
+        RECLAIM_DEPLOYMENT_MANIFEST: "/old/manifest.json",
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: "{\"stale\":true}",
+        RECLAIM_MANIFEST_PATH: "/old/alias.json",
+      },
+      "/repo/apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
+    );
+    expect(env.RECLAIM_DEPLOYMENT_MANIFEST_PATH).toBe(
+      "/repo/apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
+    );
+    expect(env.RECLAIM_DEPLOYMENT_MANIFEST).toBeUndefined();
+    expect(env.RECLAIM_DEPLOYMENT_MANIFEST_JSON).toBeUndefined();
+    expect(env.RECLAIM_MANIFEST_PATH).toBeUndefined();
   });
 
   it("requires a clean named branch with an existing open PR", () => {

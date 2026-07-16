@@ -9,9 +9,13 @@ import { runWebAppClaimFlowWasmLace } from "./web-app-claim-flow-wasm-lace.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3917;
-const DEFAULT_PROOF_ASSET_HOST = "proof-assets.reclaim-proof.com";
+const DEFAULT_PROOF_ASSET_HOSTS = Object.freeze([
+  "proof-assets.reclaim-proof.com",
+  "proof-assets-2m.reclaim-proof.com",
+]);
 const LOCAL_ENV_FILE_ENV = "RECLAIM_E2E_LOCAL_ENV_FILE";
 const PROFILE_ENV_FILE_ENV = "RECLAIM_E2E_LACE_PROFILE_ENV_FILE";
+const LOCAL_MANIFEST_ENV = "RECLAIM_E2E_LOCAL_MANIFEST_PATH";
 
 export class LocalPrClaimFlowError extends Error {
   constructor(code, message) {
@@ -71,20 +75,26 @@ export async function runLocalPrClaimFlow(options = {}) {
     port,
     prNumber: git.prNumber,
   });
-  const manifestPath = resolveManifestPath(flowEnv, path.dirname(localEnvFile));
+  const defaultManifestPath = path.join(appDir, "public", "proof-assets", "reclaim-deployment.json");
+  const manifestPath = resolveInputFile(
+    flowEnv[LOCAL_MANIFEST_ENV],
+    [defaultManifestPath],
+    LOCAL_MANIFEST_ENV,
+  );
+  const pinnedEnv = pinLocalDeploymentManifest(flowEnv, manifestPath);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const proofAssets = assertRemoteProofAssets(
     manifest,
-    flowEnv.RECLAIM_E2E_EXPECTED_PROOF_ASSET_HOST ?? DEFAULT_PROOF_ASSET_HOST,
+    expectedProofAssetHosts(pinnedEnv),
   );
 
   console.log(`Building the local production app for PR #${git.prNumber} at ${git.commitSha.slice(0, 12)}.`);
-  console.log(`Large proof assets remain remote at ${proofAssets.pkHost}; bundled runtime assets use the production Next build.`);
-  await runInherited("pnpm", ["build"], { cwd: appDir, env: flowEnv, spawn });
+  console.log(`Large proof assets remain remote at ${proofAssets.pkHost} and ${proofAssets.ccsHost}; bundled runtime assets use the production Next build.`);
+  await runInherited("pnpm", ["build"], { cwd: appDir, env: pinnedEnv, spawn });
 
   const server = spawn("pnpm", ["start", "--hostname", DEFAULT_HOST, "--port", String(port)], {
     cwd: appDir,
-    env: flowEnv,
+    env: pinnedEnv,
     stdio: "inherit",
   });
   try {
@@ -94,7 +104,7 @@ export async function runLocalPrClaimFlow(options = {}) {
     });
     const result = await runWebAppClaimFlowWasmLace({
       cwd: appDir,
-      env: flowEnv,
+      env: pinnedEnv,
       repoRoot,
     });
     return { ...result, git, proofAssets };
@@ -130,7 +140,24 @@ export function createLocalVercelEmulationEnv({ baseEnv, branch, commitSha, port
   return next;
 }
 
-export function assertRemoteProofAssets(manifest, expectedHost = DEFAULT_PROOF_ASSET_HOST) {
+export function pinLocalDeploymentManifest(env, manifestPath) {
+  const next = {
+    ...env,
+    RECLAIM_DEPLOYMENT_MANIFEST_PATH: manifestPath,
+  };
+  delete next.RECLAIM_DEPLOYMENT_MANIFEST;
+  delete next.RECLAIM_DEPLOYMENT_MANIFEST_JSON;
+  delete next.RECLAIM_MANIFEST_PATH;
+  return next;
+}
+
+export function assertRemoteProofAssets(manifest, expectedHosts = DEFAULT_PROOF_ASSET_HOSTS) {
+  if (!Array.isArray(expectedHosts) || expectedHosts.length === 0) {
+    throw new LocalPrClaimFlowError(
+      "local_remote_proof_asset_hosts_invalid",
+      "At least one approved remote proof-asset host is required.",
+    );
+  }
   const browser = manifest?.proof?.browser_proving;
   if (!browser?.enabled) {
     throw new LocalPrClaimFlowError(
@@ -138,8 +165,8 @@ export function assertRemoteProofAssets(manifest, expectedHost = DEFAULT_PROOF_A
       "The canonical Preprod manifest does not enable browser-WASM proving.",
     );
   }
-  const pk = requireRemoteAsset(browser.pk_url, "pk_url", expectedHost);
-  const ccs = requireRemoteAsset(browser.ccs_url, "ccs_url", expectedHost);
+  const pk = requireRemoteAsset(browser.pk_url, "pk_url", expectedHosts);
+  const ccs = requireRemoteAsset(browser.ccs_url, "ccs_url", expectedHosts);
   return Object.freeze({ pkHost: pk.hostname, ccsHost: ccs.hostname });
 }
 
@@ -209,40 +236,28 @@ function resolveInputFile(configured, candidates, field) {
   return found;
 }
 
-function resolveManifestPath(env, envFileDir) {
-  const configured = String(
-    env.RECLAIM_DEPLOYMENT_MANIFEST_PATH
-      ?? env.RECLAIM_DEPLOYMENT_MANIFEST
-      ?? env.RECLAIM_MANIFEST_PATH
-      ?? "",
-  ).trim();
-  if (!configured) {
-    throw new LocalPrClaimFlowError(
-      "local_manifest_missing",
-      "The local environment must select the canonical Preprod reclaim deployment manifest.",
-    );
-  }
-  const resolved = path.isAbsolute(configured) ? configured : path.resolve(envFileDir, configured);
-  if (!existsSync(resolved)) {
-    throw new LocalPrClaimFlowError("local_manifest_missing", "The configured Preprod reclaim deployment manifest does not exist.");
-  }
-  return resolved;
-}
-
-function requireRemoteAsset(value, field, expectedHost) {
+function requireRemoteAsset(value, field, expectedHosts) {
   let url;
   try {
     url = new URL(value);
   } catch {
     throw new LocalPrClaimFlowError("local_remote_proof_assets_missing", `browser_proving.${field} must be an HTTPS URL.`);
   }
-  if (url.protocol !== "https:" || url.hostname !== expectedHost || url.username || url.password) {
+  if (url.protocol !== "https:" || !expectedHosts.includes(url.hostname) || url.username || url.password) {
     throw new LocalPrClaimFlowError(
       "local_remote_proof_assets_missing",
-      `browser_proving.${field} must use the approved remote proof-asset host ${expectedHost}.`,
+      `browser_proving.${field} must use an approved remote proof-asset host.`,
     );
   }
   return url;
+}
+
+function expectedProofAssetHosts(env) {
+  const configured = String(env.RECLAIM_E2E_EXPECTED_PROOF_ASSET_HOSTS ?? "").trim();
+  if (!configured) {
+    return [...DEFAULT_PROOF_ASSET_HOSTS];
+  }
+  return configured.split(",").map((value) => value.trim()).filter(Boolean);
 }
 
 function parsePort(value) {

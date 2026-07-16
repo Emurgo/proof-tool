@@ -546,9 +546,12 @@ explicit `localPreviewEmulation: true` provenance marker. The deployed lane
 rejects that marker, while the local lane requires it. This prevents localhost
 evidence from being confused with a real Vercel Preview.
 
-The canonical manifest must keep browser-WASM proving enabled and must point
-both the proving key and constraint system at
-`proof-assets.reclaim-proof.com`. Small signed manifests and the WASM runtime
+The lane pins the exact commit's Vercel stable-pointer manifest at
+`public/proof-assets/reclaim-deployment.json` instead of trusting an older
+ignored manifest path. That manifest must keep browser-WASM proving enabled,
+with the proving key at `proof-assets.reclaim-proof.com` and the optimized
+constraint system at `proof-assets-2m.reclaim-proof.com`. Small signed
+manifests and the WASM runtime
 are served by the production Next build as they are on Vercel; the large proof
 assets stay on the remote R2-backed host. The journey still starts at the
 landing page, creates all nineteen screenshots, signs only with
@@ -606,7 +609,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
 ### Current verification evidence
 
 - The focused resolver/provenance/contract/fixture/provider/Lace/app-server and
-  local PR-push tests pass: 39 tests across nine files.
+  local PR-push tests pass: 40 tests across nine files.
 - `pnpm typecheck`, the Next production build, Node syntax checks, YAML parsing,
   direct reclaim-manifest verification, and `git diff --check` pass for the
   current working tree.
@@ -630,7 +633,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
   `/claim-api/build-provenance` in the route table. This is compatibility
   evidence only; PR #13's deployed Preview predates this lane.
 - After adding the local-production PR-push wrapper on PR #14, typecheck passed,
-  the complete web-app suite passed 396 of 396 tests across 47 files, and the
+  the complete web-app suite passed 397 of 397 tests across 47 files, and the
   production build passed with the provenance route in the route table.
 - The exact deployed Preview merge gate has not completed yet. Therefore there
   is no deployed-Preview nineteen-screenshot acceptance bundle, transaction

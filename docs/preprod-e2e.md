@@ -229,9 +229,11 @@ node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
 This command requires a clean non-main branch with an open PR. It loads the
 ignored root `.env.local` and dedicated Lace `profile.env`, runs a production
 `next build`/`next start` server on `127.0.0.1`, and verifies that the
-canonical manifest keeps the proving key and CCS on the approved remote
-R2-backed asset host. It then performs the same real browser-WASM/Lace journey,
-nineteen screenshots, Preprod submission, and provider confirmation as the
+commit's Vercel stable-pointer manifest keeps the proving key and optimized CCS
+on the approved remote R2-backed asset hosts. The ignored environment still
+supplies provider/review configuration, but cannot replace the committed
+deployment manifest. The command then performs the same real browser-WASM/Lace
+journey, nineteen screenshots, Preprod submission, and provider confirmation as the
 deployed lane.
 
 The wrapper pushes the exact tested commit only after success and refuses to
