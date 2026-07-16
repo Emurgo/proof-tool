@@ -24,7 +24,7 @@ it("continues when deployment review was already accepted in the browser context
       return {
         async isVisible() {
           calls.push(["isVisible", role, name]);
-          return name !== "I reviewed deployment";
+          return name !== "Continue";
         },
         async click() {
           calls.push(["click", role, name]);
@@ -71,8 +71,8 @@ it("continues when deployment review was already accepted in the browser context
   });
 
   expect(result.ok).toBe(true);
-  expect(calls).toContainEqual(["isVisible", "button", "I reviewed deployment"]);
-  expect(calls).not.toContainEqual(["click", "button", "I reviewed deployment"]);
+  expect(calls).toContainEqual(["isVisible", "button", "Continue"]);
+  expect(calls).not.toContainEqual(["click", "button", "Continue"]);
   const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
   expect(artifact.helper.token).toBe("[redacted]");
 });

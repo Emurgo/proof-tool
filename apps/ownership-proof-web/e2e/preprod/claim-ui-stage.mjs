@@ -35,7 +35,7 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   }).toString();
 
   await page.goto(claimUrl.toString(), { waitUntil: "domcontentloaded" });
-  await clickByRoleIfVisible(page, "button", "I reviewed deployment");
+  await clickByRoleIfVisible(page, "button", "Continue");
   await selectClaimRole(page, walletHarness, COMPROMISED_WALLET_ROLE);
   await clickByRole(page, "button", "Connect impacted wallet");
   await approveWalletConnection(walletHarness, COMPROMISED_WALLET_ROLE);
