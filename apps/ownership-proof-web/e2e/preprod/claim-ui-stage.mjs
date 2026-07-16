@@ -66,7 +66,7 @@ export async function runClaimUiAcceptanceStage(options = {}) {
     await waitForText(page, "Proofs ready", 900_000);
     await clickByRole(page, "button", "Continue to current batch");
     await waitForText(page, "Claim funds");
-    await clickByRole(page, "button", "Build claim review");
+    await clickByRole(page, "button", "Build transaction for review");
     await waitForText(page, "Review hash", 180_000);
     await clickByRole(page, "button", "Sign and submit claim");
     await approveWalletSigning(walletHarness, SAFE_WALLET_ROLE, "claim");
