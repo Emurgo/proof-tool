@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   LACE_EXTENSION_DIR_ENV,
   LACE_ROLE_LABELS_JSON_ENV,
+  RealLaceProfileDriver,
   createRealLaceProfileDriverFromEnv,
+  unlockLacePage,
 } from "./real-lace-driver.mjs";
 
 const tempDirs = [];
@@ -97,8 +99,41 @@ describe("real Lace profile driver", () => {
 
     const summaryText = JSON.stringify(driver.summary);
     expect(summaryText).not.toContain(walletFile.reclaim_funder.mnemonic);
-    expect(summaryText).toContain("Proof Tool Preprod reclaim funder");
+    expect(summaryText).toContain("reclaim_funder");
     expect(await driver.recoveryPhraseForBrowserUi("reclaim_funder")).toBe(walletFile.reclaim_funder.mnemonic);
+  });
+
+  it("refuses any signing request for the compromised role", async () => {
+    const compromised = deriveRoleState({
+      role: "compromised_user",
+      mnemonic: words("cable", 12),
+      label: "compromised_user",
+    });
+    const driver = new RealLaceProfileDriver({
+      browserChannel: "chromium",
+      extensionDir: "/tmp/lace",
+      extensionRoute: "popup.html",
+      manifestPath: "/tmp/lace/manifest.json",
+      providerId: "lace",
+      providerName: "Lace",
+      roleLabels: { compromised_user: "compromised_user" },
+      roleStates: new Map([["compromised_user", compromised]]),
+      userDataDir: "/tmp/profile",
+      walletPassword: "test-password",
+    });
+
+    await expect(driver.approveWalletSigning("compromised_user", "claim")).rejects.toMatchObject({
+      code: "unexpected_compromised_wallet_signature",
+    });
+  });
+
+  it("reports a rejected persisted password as an unlock failure", async () => {
+    const page = fakeRejectedUnlockPage();
+
+    await expect(unlockLacePage(page, "wrong-password")).rejects.toMatchObject({
+      code: "lace_unlock_failed",
+    });
+    expect(page.filledPasswords).toEqual(["wrong-password"]);
   });
 });
 
@@ -156,6 +191,34 @@ function fakeExtensionContext() {
       ];
     },
   };
+}
+
+function fakeRejectedUnlockPage() {
+  const page = {
+    filledPasswords: [],
+    locator(selector) {
+      const locator = {
+        first() {
+          return locator;
+        },
+        async isVisible() {
+          return selector === '[data-testid="authentication-prompt-input-value"]';
+        },
+        async fill(value) {
+          page.filledPasswords.push(value);
+        },
+        async click() {},
+        async waitFor() {
+          if (selector === '[data-testid="authentication-prompt-body"]') {
+            throw new Error("prompt remained visible");
+          }
+        },
+      };
+      return locator;
+    },
+    async waitForTimeout() {},
+  };
+  return page;
 }
 
 function tempDir() {
