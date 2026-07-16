@@ -238,6 +238,10 @@ the deployed lane. The Next build and server stay in production mode. Only the
 separate fixture-funding driver drops production mode from its own process; it
 is not injected into the app and Lace remains the transaction-signing wallet.
 
+Before the app tab is created, the driver unlocks and selects the compromised
+test wallet so the extension can inject its real CIP-30 provider at document
+creation. The journey still selects and connects Lace through the visible UI.
+
 The wrapper pushes the exact tested commit only after success and refuses to
 push if the branch, commit, or worktree changes while proving. It never uses a
 force push. The explicit `--live-preprod` flag acknowledges that the run funds

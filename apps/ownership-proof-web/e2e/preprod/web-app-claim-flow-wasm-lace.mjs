@@ -144,6 +144,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
       extraHTTPHeaders: headers,
       viewport: { width: 1440, height: 1000 },
     });
+    await prepareLaceRoleBeforeNavigation(walletDriver, COMPROMISED_ROLE);
     const page = await context.newPage();
     page.setDefaultTimeout(DEFAULT_UI_TIMEOUT_MS);
     installObservation(page, consoleEntries, networkEntries, env);
@@ -314,6 +315,16 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     artifacts,
     result: run.result,
   };
+}
+
+export async function prepareLaceRoleBeforeNavigation(walletDriver, role) {
+  if (!walletDriver || typeof walletDriver.switchActiveWallet !== "function") {
+    throw new WebAppClaimFlowContractError(
+      "lace_role_preload_unavailable",
+      "The Lace driver must initialize the active wallet before the web-app page is created.",
+    );
+  }
+  await walletDriver.switchActiveWallet(role);
 }
 
 function createScreenshotRecorder({ run, runPath, screenshotsDir, artifacts }) {

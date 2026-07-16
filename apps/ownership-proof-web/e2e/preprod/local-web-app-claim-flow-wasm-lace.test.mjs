@@ -6,6 +6,7 @@ import {
   createLocalVercelEmulationEnv,
   pinLocalDeploymentManifest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
+import { prepareLaceRoleBeforeNavigation } from "./web-app-claim-flow-wasm-lace.mjs";
 
 const commitSha = "a".repeat(40);
 
@@ -91,6 +92,18 @@ describe("local production PR claim flow", () => {
     };
     expect(createLocalRunnerEnv(serverEnv)).toEqual({ RECLAIM_E2E_TARGET_MODE: "local-production" });
     expect(serverEnv.NODE_ENV).toBe("production");
+  });
+
+  it("initializes the compromised Lace role before the web-app page is created", async () => {
+    const roles = [];
+    await prepareLaceRoleBeforeNavigation(
+      { switchActiveWallet: async (role) => roles.push(role) },
+      "compromised_user",
+    );
+    expect(roles).toEqual(["compromised_user"]);
+    await expect(prepareLaceRoleBeforeNavigation({}, "compromised_user")).rejects.toMatchObject({
+      code: "lace_role_preload_unavailable",
+    });
   });
 
   it("requires a clean named branch with an existing open PR", () => {
