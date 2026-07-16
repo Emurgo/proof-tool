@@ -31,7 +31,8 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   const artifactPath = path.join(outputDir, "claim-ui-acceptance.json");
 
   const claimUrl = new URL("/claim", appTarget.baseUrl);
-  claimUrl.hash = new URLSearchParams({
+  const helperPairingUrl = new URL(claimUrl);
+  helperPairingUrl.hash = new URLSearchParams({
     helper: helperTarget.helperUrl,
     pair: helperTarget.token,
   }).toString();
@@ -47,6 +48,9 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   await selectClaimRole(page, walletHarness, SAFE_WALLET_ROLE);
   await clickByRole(page, "button", "Connect safe wallet");
   await approveWalletConnection(walletHarness, SAFE_WALLET_ROLE);
+  await waitForText(page, "Create proofs");
+  await pairHelperThroughCourier(page, helperPairingUrl.toString());
+  await chooseDesktopProofMethod(page);
 
   let batches = 0;
   for (; batches < maxBatches; batches += 1) {
@@ -109,6 +113,26 @@ export async function runClaimUiAcceptanceStage(options = {}) {
       browserUiDriven: true,
     },
   };
+}
+
+async function pairHelperThroughCourier(page, pairingUrl) {
+  const context = page.context?.();
+  if (!context || typeof context.newPage !== "function") {
+    throw new PreprodClaimUiStageError("claim_ui_pairing_context_missing", "Claim UI helper pairing requires a browser context.");
+  }
+  const courierPage = await context.newPage();
+  try {
+    await courierPage.goto(pairingUrl, { waitUntil: "domcontentloaded" });
+    await courierPage.getByText("Proof Helper paired", { exact: false }).waitFor({ timeout: 120_000 });
+  } finally {
+    await courierPage.close();
+  }
+}
+
+async function chooseDesktopProofMethod(page) {
+  await clickByRole(page, "button", "Choose method");
+  await page.getByRole("radio", { name: /Proof Helper Desktop/iu }).click({ timeout: 180_000 });
+  await clickByRole(page, "button", "Cancel");
 }
 
 async function recoveryPhraseForUi(walletHarness, role) {

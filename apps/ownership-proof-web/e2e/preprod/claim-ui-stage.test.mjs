@@ -20,6 +20,9 @@ it("clears resumable state and starts a fresh browser claim flow", async () => {
     async addInitScript(_callback, storageKey) {
       calls.push(["addInitScript", storageKey]);
     },
+    context() {
+      return fakeBrowserContext(calls);
+    },
     async goto(url) {
       calls.push(["goto", url]);
     },
@@ -88,6 +91,9 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
   const page = {
     async addInitScript(_callback, storageKey) {
       calls.push(["addInitScript", storageKey]);
+    },
+    context() {
+      return fakeBrowserContext(calls);
     },
     async goto() {},
     getByRole(role, { name }) {
@@ -158,3 +164,26 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
   expect(calls).toContainEqual(["click", "button", "Continue to safe wallet", 180_000]);
   expect(calls).toContainEqual(["approveSigning", "safe_claim_destination", "claim"]);
 });
+
+function fakeBrowserContext(calls) {
+  return {
+    async newPage() {
+      calls.push(["newPage"]);
+      return {
+        async goto(url) {
+          calls.push(["courierGoto", url]);
+        },
+        getByText(text) {
+          return {
+            async waitFor({ timeout }) {
+              calls.push(["courierWaitForText", text, timeout]);
+            },
+          };
+        },
+        async close() {
+          calls.push(["courierClose"]);
+        },
+      };
+    },
+  };
+}
