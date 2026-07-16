@@ -170,12 +170,20 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
 
     await expectHeading(page, "Connect impacted wallet");
     await capture("02-impacted-wallet.png", page, "impacted-wallet");
-    await walletDriver.connectRole(page, COMPROMISED_ROLE, "claim-wallet-option");
+    const impactedExtensionPage = await walletDriver.connectRole(page, COMPROMISED_ROLE, "claim-wallet-option");
     const scanBarrier = await createResponseBarrier(page, "/claim-api/reclaim-utxos");
     await page.getByRole("button", { name: "Connect impacted wallet", exact: true }).click();
-    await walletDriver.approveDappConnection(COMPROMISED_ROLE, {
+    const impactedApprovalPage = await walletDriver.approveDappConnection(COMPROMISED_ROLE, {
       beforeApprove: (extensionPage) => capture("03-lace-impacted-connect.png", extensionPage, "lace-impacted-connect"),
+      allowAlreadyAuthorized: true,
+      dappPage: page,
     });
+    if (!impactedApprovalPage) {
+      if (!impactedExtensionPage) {
+        throw new WebAppClaimFlowContractError("lace_impacted_account_page_missing", "Lace did not expose the selected impacted-account page.");
+      }
+      await capture("03-lace-impacted-connect.png", impactedExtensionPage, "lace-impacted-account-selected");
+    }
     await walletDriver.assertActiveDappRole(page, COMPROMISED_ROLE);
     await scanBarrier.waitUntilIntercepted();
     await expectHeading(page, "Available claims");
