@@ -634,7 +634,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
 ### Current verification evidence
 
 - The focused resolver/provenance/contract/fixture/provider/Lace/app-server and
-  local PR-push tests pass: 44 tests across nine files.
+  local PR-push tests pass: 45 tests across nine files.
 - `pnpm typecheck`, the Next production build, Node syntax checks, YAML parsing,
   direct reclaim-manifest verification, and `git diff --check` pass for the
   current working tree.
@@ -658,7 +658,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
   `/claim-api/build-provenance` in the route table. This is compatibility
   evidence only; PR #13's deployed Preview predates this lane.
 - After adding the local-production PR-push wrapper on PR #14, typecheck passed,
-  the complete web-app suite passed 402 of 402 tests across 47 files, and the
+  the complete web-app suite passed 403 of 403 tests across 47 files, and the
   production build passed with the provenance route in the route table.
 - The exact deployed Preview merge gate has not completed yet. Therefore there
   is no deployed-Preview twenty-screenshot acceptance bundle, transaction

@@ -29,6 +29,8 @@ const DEFAULT_ROLE_LABELS = Object.freeze({
 const EXTENSION_POLL_MS = 250;
 const EXTENSION_TIMEOUT_MS = 30_000;
 const PREPROD_NETWORK_ID = 0;
+const LACE_CARDANO_SIGN_SELECTOR =
+  'body:has([data-testid="sign-tx-origin"]) [data-testid="dapp-connector-primary-button"]';
 
 export class PreprodRealLaceDriverError extends Error {
   constructor(code, message) {
@@ -236,11 +238,13 @@ export class RealLaceProfileDriver {
       this.context,
       this.extensionId,
       [
+        LACE_CARDANO_SIGN_SELECTOR,
         '[data-testid="dapp-transaction-confirm"]',
         '[data-testid="sign-transaction-confirm"]',
       ],
       `lace_${purpose}_sign_prompt_missing`,
       async (page) => {
+        await submitVisibleLaceAuthentication(page, this.walletPassword);
         if (!this.walletPassword) {
           return;
         }
@@ -252,6 +256,7 @@ export class RealLaceProfileDriver {
       this.extensionRoute,
       options.beforeApprove,
     );
+    await settleLaceSigningAuthentication(page, this.walletPassword);
     state.signAttempts = Number(state.signAttempts ?? 0) + 1;
     return page;
   }
@@ -683,6 +688,71 @@ function normalizeDappOrigin(value) {
       "The Lace DApp origin must be an HTTP(S) URL.",
     );
   }
+}
+
+async function submitVisibleLaceAuthentication(page, password) {
+  if (!page || page.isClosed()) {
+    return false;
+  }
+  const input = page.locator('[data-testid="authentication-prompt-input-value"]').first();
+  if (!(await safeVisible(input))) {
+    return false;
+  }
+  if (!password) {
+    throw new PreprodRealLaceDriverError(
+      "lace_wallet_password_missing",
+      `${LACE_WALLET_PASSWORD_ENV} is required to authorize the Lace signature.`,
+    );
+  }
+  const confirm = page.locator('[data-testid="authentication-prompt-button-confirm"]').first();
+  if (!(await safeVisible(confirm))) {
+    throw new PreprodRealLaceDriverError(
+      "lace_signing_auth_confirm_missing",
+      "Lace displayed a signing authentication prompt without its confirm control.",
+    );
+  }
+  await input.fill(password);
+  await confirm.click({ force: true });
+  const dismissed = await page
+    .locator('[data-testid="authentication-prompt-body"]')
+    .first()
+    .waitFor({ state: "hidden", timeout: EXTENSION_TIMEOUT_MS })
+    .then(() => true)
+    .catch(() => false);
+  if (!dismissed) {
+    throw new PreprodRealLaceDriverError(
+      "lace_signing_authentication_failed",
+      "Lace rejected the configured wallet password while signing.",
+    );
+  }
+  return true;
+}
+
+async function settleLaceSigningAuthentication(page, password) {
+  const deadline = Date.now() + 15_000;
+  let signingHiddenSince = null;
+  while (Date.now() < deadline) {
+    if (!page || page.isClosed()) {
+      return;
+    }
+    if (await submitVisibleLaceAuthentication(page, password)) {
+      return;
+    }
+    const signingButton = page.locator(LACE_CARDANO_SIGN_SELECTOR).first();
+    if (await safeVisible(signingButton)) {
+      signingHiddenSince = null;
+    } else {
+      signingHiddenSince ??= Date.now();
+      if (Date.now() - signingHiddenSince >= 2_000) {
+        return;
+      }
+    }
+    await sleep(EXTENSION_POLL_MS);
+  }
+  throw new PreprodRealLaceDriverError(
+    "lace_signing_authentication_stalled",
+    "Lace did not finish or request authentication after the transaction approval.",
+  );
 }
 
 function extensionPages(context, extensionId) {
