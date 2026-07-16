@@ -161,6 +161,50 @@ describe("real Lace profile driver", () => {
     ]);
   });
 
+  it("accepts an already-authorized safe account only after verifying the active DApp role", async () => {
+    const safe = deriveRoleState({
+      role: "safe_claim_destination",
+      mnemonic: words("delta", 12),
+      label: "safe_claim_dest",
+    });
+    const driver = new RealLaceProfileDriver({
+      browserChannel: "chromium",
+      extensionDir: "/tmp/lace",
+      extensionRoute: "expo/index.html",
+      manifestPath: "/tmp/lace/manifest.json",
+      providerId: "lace",
+      providerName: "Lace",
+      roleLabels: { safe_claim_destination: "safe_claim_dest" },
+      roleStates: new Map([["safe_claim_destination", safe]]),
+      userDataDir: "/tmp/profile",
+      walletPassword: "test-password",
+    });
+    const page = {
+      url: () => "chrome-extension://laceextensionid/expo/index.html",
+      isClosed: () => false,
+      locator() {
+        const locator = {
+          first: () => locator,
+          filter: () => locator,
+          isVisible: async () => false,
+        };
+        return locator;
+      },
+    };
+    driver.context = { pages: () => [page] };
+    driver.extensionId = "laceextensionid";
+    const verified = [];
+    driver.assertActiveDappRole = async (_page, role) => verified.push(role);
+
+    const result = await driver.approveDappConnection("safe_claim_destination", {
+      allowAlreadyAuthorized: true,
+      dappPage: {},
+    });
+
+    expect(result).toBeNull();
+    expect(verified).toEqual(["safe_claim_destination"]);
+  });
+
   it("reports a rejected persisted password as an unlock failure", async () => {
     const page = fakeRejectedUnlockPage();
 

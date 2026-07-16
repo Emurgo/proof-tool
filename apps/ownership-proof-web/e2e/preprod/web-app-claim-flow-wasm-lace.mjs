@@ -191,11 +191,19 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
 
     await expectHeading(page, "Connect safe wallet");
     await capture("07-safe-wallet.png", page, "safe-wallet");
-    await walletDriver.connectRole(page, SAFE_ROLE, "claim-wallet-option");
+    const safeExtensionPage = await walletDriver.connectRole(page, SAFE_ROLE, "claim-wallet-option");
     await page.getByRole("button", { name: "Connect safe wallet", exact: true }).click();
-    await walletDriver.approveDappConnection(SAFE_ROLE, {
+    const safeApprovalPage = await walletDriver.approveDappConnection(SAFE_ROLE, {
       beforeApprove: (extensionPage) => capture("08-lace-safe-connect.png", extensionPage, "lace-safe-connect"),
+      allowAlreadyAuthorized: true,
+      dappPage: page,
     });
+    if (!safeApprovalPage) {
+      if (!safeExtensionPage) {
+        throw new WebAppClaimFlowContractError("lace_safe_account_page_missing", "Lace did not expose the selected safe-account page.");
+      }
+      await capture("08-lace-safe-connect.png", safeExtensionPage, "lace-safe-account-selected");
+    }
     await walletDriver.assertActiveDappRole(page, SAFE_ROLE);
     await page.getByRole("button", { name: "Confirm destination and continue", exact: true }).waitFor();
     await capture("09-safe-destination.png", page, "safe-destination");

@@ -185,7 +185,7 @@ export class RealLaceProfileDriver {
 
   async connectRole(page, role, purpose) {
     this.requireRoleState(role);
-    await this.switchActiveWallet(role);
+    const extensionPage = await this.switchActiveWallet(role);
     if (purpose === "funding") {
       await selectLaceFundingProvider(page, this.providerId, this.providerName);
       await page.getByRole("button", { name: /connect wallet/iu }).click();
@@ -196,7 +196,7 @@ export class RealLaceProfileDriver {
     }
     if (purpose === "claim-wallet-option") {
       await page.getByRole("button", { name: new RegExp(escapeRegex(this.providerName), "iu") }).click();
-      return;
+      return extensionPage;
     }
     throw new PreprodRealLaceDriverError("lace_connect_purpose_unknown", `Unknown Lace connect purpose: ${purpose}.`);
   }
@@ -209,6 +209,12 @@ export class RealLaceProfileDriver {
       state.label,
       this.extensionRoute,
       options.beforeApprove,
+      options.allowAlreadyAuthorized && options.dappPage
+        ? async () => {
+            await this.assertActiveDappRole(options.dappPage, role);
+            return true;
+          }
+        : null,
     );
   }
 
@@ -270,11 +276,11 @@ export class RealLaceProfileDriver {
     const page = await openExtensionRoute(this.context, this.extensionId, this.extensionRoute);
     await unlockLacePage(page, this.walletPassword);
     if (await switchLaceWalletByLabel(page, state.label)) {
-      return;
+      return page;
     }
     const currentName = await visibleText(page.locator('[data-testid="header-menu-wallet-name"]').first());
     if (currentName === state.label) {
-      return;
+      return page;
     }
     const menuButton = page.locator('[data-testid="header-menu-button"]').first();
     if (!(await safeVisible(menuButton))) {
@@ -297,6 +303,7 @@ export class RealLaceProfileDriver {
     const probe = await page.evaluate(async (providerId) => {
       const provider = globalThis.cardano?.[providerId];
       if (!provider || typeof provider.enable !== "function") {
+    return page;
         return { present: false };
       }
       const api = await provider.enable();
@@ -529,7 +536,14 @@ async function clickFirstVisibleInExtensionPages(
   throw new PreprodRealLaceDriverError(code, `Timed out waiting for Lace selector: ${selectors.join(", ")}.`);
 }
 
-async function approveLaceDappConnection(context, extensionId, accountLabel, fallbackRoute, onBeforeApprove) {
+async function approveLaceDappConnection(
+  context,
+  extensionId,
+  accountLabel,
+  fallbackRoute,
+  onBeforeApprove,
+  isAlreadyAuthorized,
+) {
   if (!context || !extensionId) {
     throw new PreprodRealLaceDriverError("lace_context_missing", "Lace browser context is not initialized.");
   }
@@ -578,6 +592,15 @@ async function approveLaceDappConnection(context, extensionId, accountLabel, fal
       }
       await authorize.click();
       return page;
+    }
+    if (isAlreadyAuthorized) {
+      try {
+        if (await isAlreadyAuthorized()) {
+          return null;
+        }
+      } catch {
+        // The dialog may still be opening; keep polling to the bounded deadline.
+      }
     }
     await sleep(EXTENSION_POLL_MS);
   }

@@ -244,6 +244,10 @@ creation. The journey still selects and connects Lace through the visible UI.
 Lace 2.1.1 connection approval selects Source Account, chooses the wallet by
 its configured label, captures the extension review, and then authorizes.
 
+When the origin is already authorized after switching to the safe account, the
+driver accepts the missing second dialog only after CIP-30 network and address
+checks prove the active account is `safe_claim_destination`; screenshot 08
+records the visible selected safe-account state.
 The app also refreshes wallet discovery on the Cardano initialization event,
 focus or visibility changes, and a bounded ten-second fallback poll to handle
 slightly delayed extension injection.
