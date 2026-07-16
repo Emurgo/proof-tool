@@ -159,7 +159,7 @@ describe("web-app claim flow contract", () => {
           network: "Preprod",
           networkId: 0,
           sourceCommit: commit,
-          verifierVkHash: "d".repeat(64),
+          verifierVkHash: "blake2b256:" + "d".repeat(64),
           proof: { browser_proving: { id: "browser-assets", enabled: true } },
         },
       }),

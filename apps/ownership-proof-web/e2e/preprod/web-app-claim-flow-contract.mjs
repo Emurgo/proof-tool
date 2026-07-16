@@ -294,7 +294,7 @@ export function validateBrowserWasmClaimDeployment(response) {
   if (!deployment.proof?.browser_proving?.enabled) {
     throw new WebAppClaimFlowContractError("browser_wasm_unavailable", "The target deployment does not enable browser-WASM proving.");
   }
-  if (!/^[0-9a-f]{64}$/u.test(String(deployment.verifierVkHash ?? ""))) {
+  if (!/^(?:blake2b256:)?[0-9a-f]{64}$/u.test(String(deployment.verifierVkHash ?? ""))) {
     throw new WebAppClaimFlowContractError("preprod_manifest_incoherent", "The target deployment does not expose a valid pinned verifier-key hash.");
   }
   return Object.freeze({
