@@ -47,10 +47,10 @@ it("clears resumable state and starts a fresh browser claim flow", async () => {
             async waitFor() {
               calls.push(["waitForText", text]);
             },
+            async isVisible() {
+              return text === "Recovery complete";
+            },
           };
-        },
-        async count() {
-          return text === "Recovery complete" ? 1 : 0;
         },
       };
     },
@@ -122,10 +122,10 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
             async waitFor({ timeout }) {
               calls.push(["waitForText", text, timeout]);
             },
+            async isVisible() {
+              return text === "Recovery complete" && submitted;
+            },
           };
-        },
-        async count() {
-          return text === "Recovery complete" && submitted ? 1 : 0;
         },
       };
     },
@@ -167,6 +167,8 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
   expect(calls).toContainEqual(["waitForLabel", "Recovery word 1", true, 180_000]);
   expect(calls).toContainEqual(["fill", "Recovery word 1", true]);
   expect(calls).toContainEqual(["fill", "Recovery word 10", true]);
+  expect(calls).toContainEqual(["waitForRole", "heading", "Create proofs", 120_000]);
+  expect(calls.some((call) => call[0] === "waitForText" && call[1] === "Create proofs")).toBe(false);
   expect(calls).toContainEqual(["click", "button", "Continue to safe wallet", 180_000]);
   expect(calls).toContainEqual(["waitForText", "Current draft", 180_000]);
   expect(calls).toContainEqual(["click", "button", "Confirm destination and continue", 180_000]);

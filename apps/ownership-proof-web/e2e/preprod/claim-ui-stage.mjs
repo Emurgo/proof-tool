@@ -57,10 +57,10 @@ export async function runClaimUiAcceptanceStage(options = {}) {
 
   let batches = 0;
   for (; batches < maxBatches; batches += 1) {
-    if (await hasText(page, "Recovery complete")) {
+    if (await isRecoveryComplete(page)) {
       break;
     }
-    await waitForText(page, "Create proofs");
+    await waitForHeading(page, "Create proofs");
     await fillRecoveryPhrase(page, recoveryPhrase);
     await clickByRole(page, "button", "Generate proofs");
     await waitForText(page, "Proofs ready", 900_000);
@@ -70,13 +70,13 @@ export async function runClaimUiAcceptanceStage(options = {}) {
     await waitForText(page, "Review hash", 180_000);
     await clickByRole(page, "button", "Sign and submit claim");
     await approveWalletSigning(walletHarness, SAFE_WALLET_ROLE, "claim");
-    await waitForAnyText(page, ["Recovery complete", "Create proofs"], 240_000);
-    if (await hasText(page, "Recovery complete")) {
+    await waitForClaimBatchOutcome(page, 240_000);
+    if (await isRecoveryComplete(page)) {
       break;
     }
   }
 
-  if (!(await hasText(page, "Recovery complete"))) {
+  if (!(await isRecoveryComplete(page))) {
     throw new PreprodClaimUiStageError("claim_ui_acceptance_incomplete", "Claim UI did not reach the final receipt.");
   }
 
@@ -183,23 +183,38 @@ async function waitForText(page, text, timeout = 120_000) {
   await page.getByText(text, { exact: false }).first().waitFor({ timeout });
 }
 
-async function waitForAnyText(page, labels, timeout = 120_000) {
+async function waitForHeading(page, name, timeout = 120_000) {
+  await page.getByRole("heading", { name }).waitFor({ timeout });
+}
+
+async function waitForClaimBatchOutcome(page, timeout = 120_000) {
   const deadline = Date.now() + timeout;
-  let lastError = null;
   while (Date.now() < deadline) {
-    for (const label of labels) {
-      if (await hasText(page, label)) {
-        return label;
-      }
+    if (await isRecoveryComplete(page)) {
+      return "recovery-complete";
+    }
+    if (await isHeadingVisible(page, "Create proofs")) {
+      return "next-batch";
     }
     await page.waitForTimeout(500);
   }
-  throw lastError ?? new PreprodClaimUiStageError("claim_ui_wait_timeout", `Timed out waiting for ${labels.join(" or ")}.`);
+  throw new PreprodClaimUiStageError(
+    "claim_ui_wait_timeout",
+    "Timed out waiting for the final recovery receipt or the next Create proofs screen.",
+  );
 }
 
-async function hasText(page, text) {
+async function isRecoveryComplete(page) {
+  return isLocatorVisible(page.getByText("Recovery complete", { exact: false }).first());
+}
+
+async function isHeadingVisible(page, name) {
+  return isLocatorVisible(page.getByRole("heading", { name }));
+}
+
+async function isLocatorVisible(locator) {
   try {
-    return (await page.getByText(text, { exact: false }).count()) > 0;
+    return await locator.isVisible();
   } catch {
     return false;
   }
