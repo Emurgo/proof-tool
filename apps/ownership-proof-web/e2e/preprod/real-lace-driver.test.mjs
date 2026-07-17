@@ -148,9 +148,9 @@ describe("real Lace profile driver", () => {
     const initScripts = [];
     const observed = {
       providerId: "lace",
-      wrapped: true,
+      ready: true,
       error: null,
-      calls: [{ txCbor: "84a0", partialSign: true }],
+      calls: [{ txCbor: "84a00000", partialSign: true }],
     };
     const page = {
       async addInitScript(script, argument) {
@@ -170,13 +170,40 @@ describe("real Lace profile driver", () => {
     };
 
     await driver.installSigningObserver(page);
+    const init = initScripts[0];
+    init.script(init.argument);
+    globalThis.dispatchEvent(new MessageEvent("message", {
+      data: {
+        request: {
+          method: "lace/cardano-wallet-api/signTx",
+          args: [
+            { dataType: "primitive", value: "84a00000" },
+            { dataType: "primitive", value: true },
+          ],
+        },
+      },
+      source: globalThis,
+    }));
+    expect(globalThis[init.argument.key].calls).toEqual([
+      expect.objectContaining({ txCbor: "84a00000", partialSign: true }),
+    ]);
+    Reflect.deleteProperty(globalThis, init.argument.key);
     await driver.assertSigningObserverReady(page);
-    await expect(driver.assertPendingSigningTransaction(page, "84A0")).resolves.toBeUndefined();
+    await expect(driver.assertPendingSigningTransaction(page, "84A00000")).resolves.toBeUndefined();
     expect(initScripts).toHaveLength(1);
     expect(initScripts[0].argument).toMatchObject({ providerId: "lace" });
 
-    observed.calls.push({ txCbor: "84a0", partialSign: true });
-    await expect(driver.assertPendingSigningTransaction(page, "84a0")).rejects.toMatchObject({
+    observed.calls = [{ txCbor: "84a00001", partialSign: true }];
+    await expect(driver.assertPendingSigningTransaction(page, "84a00000")).rejects.toMatchObject({
+      code: "lace_signing_transaction_mismatch",
+    });
+    observed.calls = [{ txCbor: "84a00000", partialSign: false }];
+    await expect(driver.assertPendingSigningTransaction(page, "84a00000")).rejects.toMatchObject({
+      code: "lace_signing_transaction_mismatch",
+    });
+    observed.calls = [{ txCbor: "84a00000", partialSign: true }];
+    observed.calls.push({ txCbor: "84a00000", partialSign: true });
+    await expect(driver.assertPendingSigningTransaction(page, "84a00000")).rejects.toMatchObject({
       code: "lace_signing_transaction_mismatch",
     });
   });

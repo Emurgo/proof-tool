@@ -156,11 +156,11 @@ export class RealLaceProfileDriver {
   }
 
   async assertSigningObserverReady(page) {
-    const state = await waitForSigningObserverState(page, (value) => value?.wrapped === true);
+    const state = await waitForSigningObserverState(page, (value) => value?.ready === true);
     if (state?.error || state?.providerId !== this.providerId) {
       throw new PreprodRealLaceDriverError(
         "lace_signing_observer_unavailable",
-        "The acceptance harness could not wrap the expected Lace signing API.",
+        "The acceptance harness could not initialize passive Lace signing-request observation.",
       );
     }
   }
@@ -393,71 +393,49 @@ export class RealLaceProfileDriver {
 }
 
 function installLaceSigningObserverInPage({ key, providerId }) {
-  const marker = `${key}:wrapped`;
   const state = {
     schema: "proof-tool-lace-signing-observer-v1",
     providerId,
-    wrapped: false,
+    ready: true,
     calls: [],
     error: null,
   };
   globalThis[key] = state;
-
-  const wrapProvider = () => {
-    const provider = globalThis.cardano?.[providerId];
-    if (!provider || typeof provider.enable !== "function") {
+  globalThis.addEventListener("message", (event) => {
+    if (event.source !== globalThis || !event.data || typeof event.data !== "object") {
       return;
     }
-    if (provider.enable[marker] === true) {
-      state.wrapped = true;
+    const request = event.data.request;
+    const method = String(request?.method ?? "");
+    if (!/signtx/iu.test(method) || !Array.isArray(request?.args)) {
       return;
     }
-    const originalEnable = provider.enable;
-    const wrappedEnable = async (...args) => {
-      const api = await originalEnable.apply(provider, args);
-      if (!api || typeof api.signTx !== "function") {
-        return api;
-      }
-      return new Proxy(api, {
-        get(target, property, receiver) {
-          const value = Reflect.get(target, property, receiver);
-          if (property === "signTx" && typeof value === "function") {
-            return (txCbor, partialSign, ...rest) => {
-              state.calls.push({ txCbor: String(txCbor ?? ""), partialSign: partialSign === true });
-              return value.call(target, txCbor, partialSign, ...rest);
-            };
-          }
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      });
-    };
-    Object.defineProperty(wrappedEnable, marker, { value: true });
-    try {
-      provider.enable = wrappedEnable;
-      if (provider.enable !== wrappedEnable) {
-        Object.defineProperty(provider, "enable", {
-          configurable: true,
-          value: wrappedEnable,
-          writable: true,
-        });
-      }
-      state.wrapped = provider.enable === wrappedEnable;
-      if (!state.wrapped) {
-        state.error = "provider_enable_not_wrappable";
-      }
-    } catch {
-      state.error = "provider_enable_not_wrappable";
-    }
-  };
+    const values = flattenSerializableValues(request.args);
+    const txCbor = values.find(
+      (value) => typeof value === "string" && /^[0-9a-f]+$/iu.test(value) && value.length >= 8,
+    );
+    state.calls.push({
+      method,
+      txCbor: String(txCbor ?? ""),
+      partialSign: values.includes(true),
+    });
+  });
 
-  wrapProvider();
-  globalThis.addEventListener("cardano#initialized", wrapProvider);
-  const timer = globalThis.setInterval(() => {
-    wrapProvider();
-    if (state.wrapped || state.error) {
-      globalThis.clearInterval(timer);
+  function flattenSerializableValues(value, depth = 0) {
+    if (depth > 8 || value === null || value === undefined) {
+      return [];
     }
-  }, 25);
+    if (typeof value === "string" || typeof value === "boolean" || typeof value === "number") {
+      return [value];
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap((entry) => flattenSerializableValues(entry, depth + 1));
+    }
+    if (typeof value === "object") {
+      return Object.values(value).flatMap((entry) => flattenSerializableValues(entry, depth + 1));
+    }
+    return [];
+  }
 }
 
 async function waitForSigningObserverState(page, predicate) {
@@ -472,7 +450,7 @@ async function waitForSigningObserverState(page, predicate) {
     handle = await page.waitForFunction(
       ({ key }) => {
         const state = globalThis[key];
-        return state?.error || state?.wrapped ? state : false;
+        return state?.error || state?.ready ? state : false;
       },
       { key: LACE_SIGNING_OBSERVER_KEY },
       { timeout: EXTENSION_TIMEOUT_MS, polling: 50 },

@@ -116,13 +116,22 @@ transaction, recomputes its hash, requires the prepared input, restricts every
 other spending/collateral input to a provider snapshot of the safe wallet,
 requires plain outputs to the safe address, checks the exact destination index
 and value, validates collateral return, and rejects mint/certificate/governance
-actions (`web-app-claim-flow-contract.mjs:350-452`). The driver installs a page
-initialization wrapper before Lace connection and records every `signTx` call.
-The runner refuses approval unless exactly one partial-sign call contains the
-reviewed CBOR (`real-lace-driver.mjs:145-190,395-482` and
+actions (`web-app-claim-flow-contract.mjs:350-452`). Lace 2.1.1 exposes its
+immutable CIP-30 provider through a `window.postMessage` request transport, so
+the driver installs a passive listener before navigation and records every
+serialized `signTx` request without replacing the provider. The runner refuses
+approval unless exactly one partial-sign request contains the reviewed CBOR
+and `partialSign=true` (`real-lace-driver.mjs:145-188,395-437` and
 `web-app-claim-flow-wasm-lace.mjs:253-278`).
 
-**Status:** resolved and covered by positive/negative tests.
+**Residual trust boundary.** Candidate page code shares Lace's window-message
+channel and could deliberately spoof an observed request. This check is strong
+regression protection, not a substitute for protected-environment approval of
+the candidate Preview. Exact body validation, the Lace review UI, provider
+confirmation, and same-repository human approval remain independent layers.
+
+**Status:** resolved to the intended regression-detection threat model and
+covered by positive/negative tests.
 
 ### F-03 — High — Mutable action tags in a secret-bearing workflow
 
@@ -219,7 +228,7 @@ positive coverage and for missing negative assertions.
 
 Evidence for the current hardened working tree:
 
-- `pnpm exec vitest run e2e/preprod`: **176/176 passed** across 26 files.
+- `pnpm exec vitest run e2e/preprod`: **180/180 passed** across 27 files.
 - `pnpm test`: **416/416 passed** across 48 files, including all four
   workflow-security assertions.
 - `pnpm typecheck`: passed.
@@ -237,6 +246,13 @@ transaction
 `8899aa3ddcc595c87d49a069c80216356e14f18fe6a3d9d89363c53784707325`.
 It is useful compatibility evidence but is not final acceptance evidence for
 the hardened SHA.
+
+The first hardened live attempt against `193c29f` failed closed before the
+landing screenshot because Lace 2.1.1 does not permit replacing its injected
+provider's `enable` function. No Lace approval or claim submission occurred.
+The observer was subsequently changed to the passive transport-compatible
+implementation above; its focused compatibility test passes. A fresh live run
+against the final commit remains the acceptance condition.
 
 ## Blast radius
 
