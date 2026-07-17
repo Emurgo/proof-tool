@@ -794,6 +794,7 @@ describe("ClaimFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign and submit claim" }));
 
     await waitFor(() => expect(screen.getByText(/Recovery complete/i)).toBeInTheDocument());
+    expect(screen.getByText("1 of 1", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /11111\.\.\.11111/i })).toHaveAttribute(
       "href",
       `https://preprod.cexplorer.io/tx/${"1".repeat(64)}`,

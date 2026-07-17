@@ -274,6 +274,12 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     await progressBarrier.release();
 
     await page.getByText("Recovery complete", { exact: true }).waitFor({ timeout: CONFIRMATION_TIMEOUT_MS });
+    const expectedClaimedSummary = `${build.review.selectedOutrefs.length} of ${build.review.selectedOutrefs.length}`;
+    await page
+      .getByText("Claimed UTxOs", { exact: true })
+      .locator("..")
+      .getByText(expectedClaimedSummary, { exact: true })
+      .waitFor({ timeout: CONFIRMATION_TIMEOUT_MS });
     await walletDriver.assertPendingSigningTransaction(page, build.txCbor);
     recoveryPhraseEgressGuard.assertClear();
     await capture("19-recovery-complete.png", page, "claim-review-complete");

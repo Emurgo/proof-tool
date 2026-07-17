@@ -4279,8 +4279,11 @@ function ClaimReview({
     setSummaryCopyState("copied");
   };
   const recoveredSummary = summarizeSubmittedClaims(submittedClaims ?? []);
-  const claimedCount = progress?.outrefs.filter((entry) => entry.state === "spent_or_unknown" || entry.state === "confirmed_spent").length;
+  const progressClaimedCount = progress?.outrefs.filter(
+    (entry) => entry.state === "spent_or_unknown" || entry.state === "confirmed_spent",
+  ).length;
   const totalCount = progress?.outrefs.length || submittedClaims?.reduce((total, tx) => total + tx.selectedOutrefs.length, 0) || (fixtureMode ? 18 : 0);
+  const claimedCount = pending ? (progressClaimedCount ?? (fixtureMode ? 16 : 0)) : totalCount;
   const remainingCount = remainingClaims > 0 ? remainingClaims : progress?.nextBatch.count ?? (fixtureMode && pending ? 2 : 0);
   const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
   const recoveredTile = recoveredSummary
@@ -4330,7 +4333,7 @@ function ClaimReview({
         tiles={[
           ...(recoveredTile ? [{ icon: Coins, label: "Recovered", value: recoveredTile.value, detail: recoveredTile.detail }] : []),
           ...(totalCount > 0
-            ? [{ icon: Coins, label: "Claimed UTxOs", value: `${claimedCount ?? (fixtureMode && pending ? 16 : totalCount)} of ${totalCount}` }]
+            ? [{ icon: Coins, label: "Claimed UTxOs", value: `${claimedCount} of ${totalCount}` }]
             : []),
           { icon: FileText, label: "Claim transactions", value: String(rows.length) },
           { icon: CheckCircle2, label: "Remaining claims", value: String(remainingCount) },

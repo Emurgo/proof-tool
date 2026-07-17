@@ -203,6 +203,25 @@ remain mandatory.
 
 **Status:** resolved to the intended accidental-regression threat model.
 
+### F-07 — Medium — Completion receipt under-counted claimed UTxOs
+
+**Initial condition.** Visual review of the first successful hardened journey
+showed an internally inconsistent receipt: `Recovery complete`, one claim
+transaction, and zero remaining claims, but `Claimed UTxOs` displayed `0 of 1`.
+The completion view reused a temporarily pending progress count even though the
+submitted-claim receipt was already authoritative for the completed state.
+
+**Impact.** A user could reasonably doubt whether the recovery actually
+completed, and a screenshot-only gate could pass without checking the receipt's
+most important accounting statement.
+
+**Resolution.** Pending receipts continue to use provider progress, while the
+completed receipt derives its claimed count from the submitted transaction
+ledger. The component test and the real Lace journey now require the exact
+completed `N of N` value before the final screenshot can pass.
+
+**Status:** code-resolved; final exact-SHA live confirmation required.
+
 ## File-by-file coverage
 
 | File or group | Review result |
