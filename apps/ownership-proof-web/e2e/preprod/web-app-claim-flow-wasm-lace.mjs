@@ -79,6 +79,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
   persistRun(runPath, run);
 
   let context;
+  let page;
   let recoveryPhraseEgressGuard;
   try {
     if (typeof fetchFn !== "function") {
@@ -160,7 +161,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     });
     recoveryPhraseEgressGuard = await installRecoveryPhraseEgressGuard(context, compromisedMnemonic);
     await prepareLaceRoleBeforeNavigation(walletDriver, COMPROMISED_ROLE, config.baseUrl);
-    const page = await context.newPage();
+    page = await context.newPage();
     page.setDefaultTimeout(DEFAULT_UI_TIMEOUT_MS);
     await walletDriver.installSigningObserver(page);
     installObservation(page, consoleEntries, networkEntries, env);
@@ -333,6 +334,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
   } finally {
     writeFileSync(consolePath, consoleEntries.map((entry) => JSON.stringify(entry)).join("\n") + (consoleEntries.length ? "\n" : ""), "utf8");
     writeFileSync(networkPath, `${JSON.stringify(networkEntries, null, 2)}\n`, "utf8");
+    await disposePageRoutes(page);
     await context?.close().catch(() => undefined);
   }
 
@@ -354,6 +356,10 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     artifacts,
     result: run.result,
   };
+}
+
+export async function disposePageRoutes(page) {
+  await page?.unrouteAll({ behavior: "ignoreErrors" }).catch(() => undefined);
 }
 
 export async function prepareLaceRoleBeforeNavigation(walletDriver, role, origin) {

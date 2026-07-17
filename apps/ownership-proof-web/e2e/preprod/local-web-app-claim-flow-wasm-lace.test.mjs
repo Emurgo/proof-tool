@@ -8,7 +8,10 @@ import {
   pinLocalDeploymentManifest,
   resolveOpenPullRequest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
-import { prepareLaceRoleBeforeNavigation } from "./web-app-claim-flow-wasm-lace.mjs";
+import {
+  disposePageRoutes,
+  prepareLaceRoleBeforeNavigation,
+} from "./web-app-claim-flow-wasm-lace.mjs";
 
 const commitSha = "a".repeat(40);
 
@@ -113,6 +116,19 @@ describe("local production PR claim flow", () => {
     await expect(prepareLaceRoleBeforeNavigation({}, "compromised_user", "http://127.0.0.1:3917")).rejects.toMatchObject({
       code: "lace_role_preload_unavailable",
     });
+  });
+
+  it("ignores in-flight route errors before closing a failed browser journey", async () => {
+    const calls = [];
+    await disposePageRoutes({
+      unrouteAll: async (options) => calls.push(options),
+    });
+    expect(calls).toEqual([{ behavior: "ignoreErrors" }]);
+    await expect(disposePageRoutes({
+      unrouteAll: async () => {
+        throw new Error("page already closed");
+      },
+    })).resolves.toBeUndefined();
   });
 
   it("requires a clean named branch with an existing open PR", () => {
