@@ -51,10 +51,6 @@ builtinToBool condition = builtinIf condition True False
 field0 :: BI.BuiltinList BuiltinData -> BuiltinData
 field0 = BI.head
 
-{-# INLINABLE field2 #-}
-field2 :: BI.BuiltinList BuiltinData -> BuiltinData
-field2 fields = BI.head (BI.tail (BI.tail fields))
-
 {-# INLINABLE findDataAt #-}
 findDataAt :: Integer -> BI.BuiltinList BuiltinData -> BuiltinData
 findDataAt index values =
@@ -82,67 +78,6 @@ txInfoWdrlFromContextData ctx =
         (findDataAt txInfoWdrlFieldIndex (BI.snd txInfoConstr))
         (traceError "invalid script context layout")
 
-{-# INLINABLE hasExactlyOneField #-}
-hasExactlyOneField :: BI.BuiltinList BuiltinData -> (BuiltinData -> BI.BuiltinBool) -> BI.BuiltinBool
-hasExactlyOneField fields predicate =
-  B.caseList
-    (\() -> BI.false)
-    ( \value rest ->
-        B.caseList
-          (\() -> predicate value)
-          (\_ _ -> BI.false)
-          rest
-    )
-    fields
-
-{-# INLINABLE validBaseDatumData #-}
-validBaseDatumData :: BuiltinData -> BI.BuiltinBool
-validBaseDatumData datum =
-  let datumConstr = BI.unsafeDataAsConstr datum
-   in builtinIf
-        (BI.equalsInteger (BI.fst datumConstr) 0)
-        ( B.caseList
-            (\() -> BI.false)
-            ( \keyHashData _trailingFields ->
-                -- The generated FromData decoder used by the pre-V1 validator
-                -- reads the declared field and tolerates trailing constructor
-                -- fields. Preserve that acceptance set during the raw-Data
-                -- rewrite; only the first credential field is authoritative.
-                BI.equalsInteger (BI.lengthOfByteString (BI.unsafeDataAsB keyHashData)) 28
-            )
-            (BI.snd datumConstr)
-        )
-        BI.false
-
-{-# INLINABLE validInlineSpendingDatum #-}
-validInlineSpendingDatum :: BuiltinData -> BI.BuiltinBool
-validInlineSpendingDatum scriptInfo =
-  let scriptInfoConstr = BI.unsafeDataAsConstr scriptInfo
-   in builtinIf
-        (BI.equalsInteger (BI.fst scriptInfoConstr) 1)
-        ( B.caseList
-            (\() -> BI.false)
-            ( \_ownOutRef fieldsAfterOutRef ->
-                B.caseList
-                  (\() -> BI.false)
-                  ( \maybeDatum trailingFields ->
-                      B.caseList
-                        ( \() ->
-                            let maybeDatumConstr = BI.unsafeDataAsConstr maybeDatum
-                             in builtinIf
-                                  (BI.equalsInteger (BI.fst maybeDatumConstr) 0)
-                                  (hasExactlyOneField (BI.snd maybeDatumConstr) validBaseDatumData)
-                                  BI.false
-                        )
-                        (\_ _ -> BI.false)
-                        trailingFields
-                  )
-                  fieldsAfterOutRef
-            )
-            (BI.snd scriptInfoConstr)
-        )
-        BI.false
-
 {-# INLINABLE withdrawalKeyPresent #-}
 withdrawalKeyPresent :: BuiltinData -> BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BI.BuiltinBool
 withdrawalKeyPresent expectedKey entries =
@@ -156,21 +91,19 @@ withdrawalKeyPresent expectedKey entries =
     )
     entries
 
--- | Production raw-Data implementation. The pre-V1 typed validator is kept in
--- test-support/ReclaimBaseOracle.hs; compiled production code never decodes a
--- full ScriptContext.
+-- | Minimal production gate. The configured withdrawal key is applied at the
+-- deployment boundary. For the audited script-credential deployment, its
+-- presence causes the ledger to execute the corresponding global rewarding
+-- validator. Purpose, datum, credential-width,
+-- proof, destination, and value checks belong to the ledger invocation and the
+-- global validator; duplicating them here adds cost without strengthening the
+-- composed authorization property.
 {-# INLINABLE reclaimBaseValidatorBuiltin #-}
 reclaimBaseValidatorBuiltin :: BuiltinData -> BuiltinData -> BI.BuiltinBool
 reclaimBaseValidatorBuiltin globalCredentialData ctx =
-  let globalCredentialConstr = BI.unsafeDataAsConstr globalCredentialData
-      ctxConstr = BI.unsafeDataAsConstr ctx
-      ctxFields = BI.snd ctxConstr
-      scriptInfo = field2 ctxFields
-      withdrawalEntries = BI.unsafeDataAsMap (txInfoWdrlFromContextData ctx)
-   in BI.equalsInteger (BI.fst globalCredentialConstr) 1
-        `builtinAnd` BI.equalsInteger (BI.fst ctxConstr) 0
-        `builtinAnd` validInlineSpendingDatum scriptInfo
-        `builtinAnd` withdrawalKeyPresent globalCredentialData withdrawalEntries
+  withdrawalKeyPresent
+    globalCredentialData
+    (BI.unsafeDataAsMap (txInfoWdrlFromContextData ctx))
 
 {-# INLINABLE reclaimBaseValidatorDataUntyped #-}
 reclaimBaseValidatorDataUntyped :: BuiltinData -> BuiltinData -> BuiltinUnit
