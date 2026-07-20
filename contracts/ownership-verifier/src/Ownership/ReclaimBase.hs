@@ -10,7 +10,6 @@ module Ownership.ReclaimBase
   ( ReclaimBaseDatum (..)
   , reclaimBaseValidatorBuiltin
   , reclaimBaseValidatorCode
-  , txInfoWdrlFieldIndex
   , txInfoWdrlFromContextData
   ) where
 
@@ -27,56 +26,37 @@ data ReclaimBaseDatum = ReclaimBaseDatum
 PlutusTx.makeIsDataIndexed ''ReclaimBaseDatum [('ReclaimBaseDatum, 0)]
 PlutusTx.makeLift ''ReclaimBaseDatum
 
--- | Zero-based field position in the Plutus V3 'TxInfo' Data constructor.
--- Verified against plutus-ledger-api-1.38.0.0
--- PlutusLedgerApi/V3/Data/Contexts.hs:498-524: txInfoWdrl is the seventh
--- declared field (after inputs, reference inputs, outputs, fee, mint, certs).
-txInfoWdrlFieldIndex :: Integer
-txInfoWdrlFieldIndex = 6
-
 {-# INLINABLE builtinIf #-}
 builtinIf :: BI.BuiltinBool -> a -> a -> a
 builtinIf condition trueBranch falseBranch =
   BI.ifThenElse condition (\_ -> trueBranch) (\_ -> falseBranch) BI.unitval
 
-{-# INLINABLE builtinAnd #-}
-builtinAnd :: BI.BuiltinBool -> BI.BuiltinBool -> BI.BuiltinBool
-builtinAnd left right = builtinIf left right BI.false
-
 {-# INLINABLE builtinToBool #-}
 builtinToBool :: BI.BuiltinBool -> Bool
 builtinToBool condition = builtinIf condition True False
 
-{-# INLINABLE field0 #-}
-field0 :: BI.BuiltinList BuiltinData -> BuiltinData
-field0 = BI.head
-
-{-# INLINABLE findDataAt #-}
-findDataAt :: Integer -> BI.BuiltinList BuiltinData -> BuiltinData
-findDataAt index values =
-  B.caseList
-    (\() -> traceError "invalid script context layout")
-    ( \value rest ->
-        builtinIf
-          (BI.equalsInteger index 0)
-          value
-          (findDataAt (index - 1) rest)
-    )
-    values
-
 -- | Extract the withdrawal map from a library-encoded V3 ScriptContext.
--- Keeping this walk shared by the validator and the layout test makes a
--- plutus-ledger-api field-order change fail loudly in the test suite.
+-- The ledger constructs both single-constructor records and guarantees their
+-- field counts. In plutus-ledger-api-1.38.0.0, txInfoWdrl is fixed at field 6,
+-- after inputs, reference inputs, outputs, fee, mint, and certificates. Use a
+-- direct unsafe projection rather than rechecking ledger-owned tags or list
+-- lengths on every ReclaimBase execution. The layout test keeps this pinned
+-- field dependency visible across library upgrades.
 {-# INLINABLE txInfoWdrlFromContextData #-}
 txInfoWdrlFromContextData :: BuiltinData -> BuiltinData
 txInfoWdrlFromContextData ctx =
-  let ctxConstr = BI.unsafeDataAsConstr ctx
-      txInfo = field0 (BI.snd ctxConstr)
-      txInfoConstr = BI.unsafeDataAsConstr txInfo
-   in builtinIf
-        (BI.equalsInteger (BI.fst ctxConstr) 0 `builtinAnd` BI.equalsInteger (BI.fst txInfoConstr) 0)
-        (findDataAt txInfoWdrlFieldIndex (BI.snd txInfoConstr))
-        (traceError "invalid script context layout")
+  let txInfo = BI.head (BI.snd (BI.unsafeDataAsConstr ctx))
+      txInfoFields = BI.snd (BI.unsafeDataAsConstr txInfo)
+   in BI.head
+        ( BI.tail
+            ( BI.tail
+                ( BI.tail
+                    ( BI.tail
+                        (BI.tail (BI.tail txInfoFields))
+                    )
+                )
+            )
+        )
 
 {-# INLINABLE withdrawalKeyPresent #-}
 withdrawalKeyPresent :: BuiltinData -> BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BI.BuiltinBool

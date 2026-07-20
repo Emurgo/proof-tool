@@ -726,18 +726,18 @@ main = do
                 , ("ProposingScript", PurposeProposing)
                 ]
             ]
-        , testCase "plutus-ledger-api 1.38 full TxInfo layout walk selects txInfoWdrl field 6" $ do
+        , testCase "plutus-ledger-api 1.38 fixed TxInfo projection selects txInfoWdrl field 6" $ do
             let ctx =
                   reclaimBaseContext
                     (Just validBaseDatum)
                     [(keyGlobalCredential, 3), (globalCredential, 7), (otherGlobalCredential, 11)]
                 expectedWdrl = V3.toBuiltinData (V3.txInfoWdrl (V3.scriptContextTxInfo ctx))
-                walkedWdrl = txInfoWdrlFromContextData (V3.toBuiltinData ctx)
-            B.equalsData walkedWdrl expectedWdrl @?= True
+                projectedWdrl = txInfoWdrlFromContextData (V3.toBuiltinData ctx)
+            B.equalsData projectedWdrl expectedWdrl @?= True
         -- Stage 2b acceptance-equivalence qualification: configure at least
         -- 5,000 successes; checkCoverage may run more for confidence.
         , localOption (QC.QuickCheckTests 5000) $
-            QC.testProperty "raw walker matches the withdrawal-only oracle on randomized well-formed contexts" $
+            QC.testProperty "raw projection matches the withdrawal-only oracle on randomized well-formed contexts" $
               QC.forAllShrink
                 genReclaimBaseDifferentialCase
                 shrinkReclaimBaseDifferentialCase

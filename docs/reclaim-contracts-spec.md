@@ -85,6 +85,13 @@ The complete validator condition is equivalent to:
 globalCredential `elem` keys (txInfoWdrl txInfo)
 ```
 
+The compiled Base projects `txInfoWdrl` directly from field 6 of the
+ledger-built Plutus V3 `TxInfo`. It deliberately does not recheck the
+single-constructor `ScriptContext`/`TxInfo` tags or recursively bounds-check
+that fixed record projection. A layout regression test pins the field against
+`plutus-ledger-api-1.38.0.0`; upgrading the ledger API requires rerunning that
+test and the artifact/coherence gates.
+
 For the intended deployment, ledger validation of the configured script
 withdrawal executes `ReclaimGlobalV2`. GlobalV2 must then scan every matching
 base input, extract its datum credential, enforce the 28-byte verifier input,
@@ -98,7 +105,9 @@ deployment audit obligation rather than a repeated on-chain check.
 
 Deployment status: this specification describes the simplified current source.
 It exports as Base hash
-`702fdc9652eb97fe9b43a146a6ea96492c3c04fdd6f91e7c51c583ac`. The public
+`736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd` when parameterized
+by the coherent current-source GlobalV2 candidate
+`41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7`. The public
 Preprod deployment remains on the historical Base hash
 `a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd`; no deployment
 or manifest update is implied by this source change.
@@ -217,7 +226,10 @@ Pointer stake credentials are intentionally unsupported. The browser encoder
 is `apps/ownership-proof-web/lib/claim/addresses.ts`; both global validators
 derive the same bytes from ledger `Address` data on chain. Network ID is not
 part of the Plutus `Address` value, so the off-chain network check happens
-before this encoding.
+before this encoding. The on-chain encoders rely on the ledger-built `Address`
+constructor ranges and 28-byte credential hashes instead of revalidating those
+invariants. They retain the branches that affect the wire encoding and the
+explicit rejection of the valid-but-unsupported pointer staking variant.
 
 Transactions with no reclaim-base inputs should fail by default. The rewarding
 script exists only to authorize reclaim spends; allowing no-op withdrawals makes
