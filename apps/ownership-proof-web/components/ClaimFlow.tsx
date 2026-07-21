@@ -536,6 +536,8 @@ function claimFixtureData(): {
 const ADDRESS_HEX_RE = /^[0-9a-f]+$/iu;
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const DESTINATION_PROFILE = "single-destination";
+const WALLET_DISCOVERY_INTERVAL_MS = 250;
+const WALLET_DISCOVERY_WINDOW_MS = 10_000;
 const releaseRepo = "https://github.com/Anastasia-Labs/proof-tool-release";
 // Pinned release tags: `releases/latest` is unsafe because the repository also
 // hosts proof-assets releases, which can become "latest" and break these URLs.
@@ -769,10 +771,29 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     if (fixtureEnabled) {
       return;
     }
-    const nextWallets = listCardanoWallets();
-    setWallets(nextWallets);
-    setSelectedImpactedWallet((current) => current || nextWallets[0]?.[0] || "");
-    setSelectedSafeWallet((current) => current || nextWallets.find(([id]) => id !== selectedImpactedWallet)?.[0] || nextWallets[0]?.[0] || "");
+    const refreshWallets = () => {
+      const nextWallets = listCardanoWallets();
+      setWallets((current) => sameWalletEntries(current, nextWallets) ? current : nextWallets);
+      setSelectedImpactedWallet((current) =>
+        current && nextWallets.some(([id]) => id === current) ? current : nextWallets[0]?.[0] || "",
+      );
+      setSelectedSafeWallet((current) =>
+        current && nextWallets.some(([id]) => id === current) ? current : nextWallets[1]?.[0] || nextWallets[0]?.[0] || "",
+      );
+    };
+    refreshWallets();
+    const interval = window.setInterval(refreshWallets, WALLET_DISCOVERY_INTERVAL_MS);
+    const timeout = window.setTimeout(() => window.clearInterval(interval), WALLET_DISCOVERY_WINDOW_MS);
+    window.addEventListener("cardano#initialized", refreshWallets);
+    window.addEventListener("focus", refreshWallets);
+    document.addEventListener("visibilitychange", refreshWallets);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      window.removeEventListener("cardano#initialized", refreshWallets);
+      window.removeEventListener("focus", refreshWallets);
+      document.removeEventListener("visibilitychange", refreshWallets);
+    };
   }, [fixtureEnabled]);
 
   // Resume-on-refresh (C9): offer the stored snapshot instead of silently
@@ -4258,8 +4279,11 @@ function ClaimReview({
     setSummaryCopyState("copied");
   };
   const recoveredSummary = summarizeSubmittedClaims(submittedClaims ?? []);
-  const claimedCount = progress?.outrefs.filter((entry) => entry.state === "spent_or_unknown" || entry.state === "confirmed_spent").length;
+  const progressClaimedCount = progress?.outrefs.filter(
+    (entry) => entry.state === "spent_or_unknown" || entry.state === "confirmed_spent",
+  ).length;
   const totalCount = progress?.outrefs.length || submittedClaims?.reduce((total, tx) => total + tx.selectedOutrefs.length, 0) || (fixtureMode ? 18 : 0);
+  const claimedCount = pending ? (progressClaimedCount ?? (fixtureMode ? 16 : 0)) : totalCount;
   const remainingCount = remainingClaims > 0 ? remainingClaims : progress?.nextBatch.count ?? (fixtureMode && pending ? 2 : 0);
   const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
   const recoveredTile = recoveredSummary
@@ -4309,7 +4333,7 @@ function ClaimReview({
         tiles={[
           ...(recoveredTile ? [{ icon: Coins, label: "Recovered", value: recoveredTile.value, detail: recoveredTile.detail }] : []),
           ...(totalCount > 0
-            ? [{ icon: Coins, label: "Claimed UTxOs", value: `${claimedCount ?? (fixtureMode && pending ? 16 : totalCount)} of ${totalCount}` }]
+            ? [{ icon: Coins, label: "Claimed UTxOs", value: `${claimedCount} of ${totalCount}` }]
             : []),
           { icon: FileText, label: "Claim transactions", value: String(rows.length) },
           { icon: CheckCircle2, label: "Remaining claims", value: String(remainingCount) },
@@ -6194,6 +6218,14 @@ function listCardanoWallets(): WalletEntry[] {
     const wallet = entry[1] as CardanoWalletProvider | undefined;
     return typeof wallet?.enable === "function";
   });
+}
+
+function sameWalletEntries(left: WalletEntry[] | undefined, right: WalletEntry[]): boolean {
+  return left !== undefined
+    && left.length === right.length
+    && left.every(([id, wallet], index) =>
+      id === right[index]?.[0] && wallet === right[index]?.[1],
+    );
 }
 
 async function readImpactedWalletSummary(

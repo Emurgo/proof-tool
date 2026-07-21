@@ -217,6 +217,59 @@ amount/count, batch, poll, timeout, app URL/port, and output-directory controls
 are declared next to the corresponding stage constants; do not duplicate their
 defaults in automation wrappers.
 
+## Running The Local Production PR-Push Lane
+
+To test the complete landing-page-to-confirmed-claim journey before updating an
+existing PR, commit the intended changes and run from the repository root:
+
+```bash
+node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
+```
+
+This command requires a clean non-main branch with an open PR and working Git
+push authentication for the selected remote. It resolves the PR through
+GitHub's API without requiring the `gh` CLI; public repositories need no token,
+while `GH_TOKEN` or `GITHUB_TOKEN` may authenticate the lookup when needed.
+Before spending any Preprod funds it performs a no-hook `git push --dry-run` to
+reject authentication, permission, or non-fast-forward failures. It then loads the
+ignored root `.env.local` and dedicated Lace `profile.env`, runs a production
+`next build`/`next start` server on `127.0.0.1`, and verifies that the
+commit's Vercel stable-pointer manifest keeps the proving key and optimized CCS
+on the approved remote R2-backed asset hosts. The ignored environment still
+supplies provider/review configuration, but cannot replace the committed
+deployment manifest. The command then performs the same real browser-WASM/Lace
+journey, twenty screenshots, Preprod submission, and provider confirmation.
+The Next build and server stay in production mode. Only the
+separate fixture-funding driver drops production mode from its own process; it
+is not injected into the app and Lace remains the transaction-signing wallet.
+
+Before the app tab is created, the driver unlocks and selects the compromised
+test wallet so the extension can inject its real CIP-30 provider at document
+creation. It first removes any stale authorization for the exact local origin
+through Lace Settings → Authorized DApps; this happens before the journey
+starts at the landing page. The journey still selects and connects Lace
+through the visible UI. Lace 2.1.1 connection approval selects Source Account,
+chooses the wallet by its configured label, captures the extension review, and
+then authorizes.
+
+After the impacted scan, the runner opens Lace Settings → Authorized DApps,
+captures the exact app-origin connection, disconnects it, switches to
+`safe_claim_dest`, and reconnects through the visible safe-wallet UI. A
+missing approval dialog is a failure, so the runner cannot silently reuse the
+impacted account.
+
+The app also refreshes wallet discovery on the Cardano initialization event,
+focus or visibility changes, and a bounded ten-second fallback poll to handle
+slightly delayed extension injection.
+
+The wrapper pushes the exact tested commit only after success and refuses to
+push if the branch, commit, or worktree changes while proving. It never uses a
+force push. The explicit `--live-preprod` flag acknowledges that the run funds
+and spends a fresh Preprod fixture. Ordinary `git push` remains unchanged.
+Local success is strong pre-push evidence for the exact tested commit. It does
+not verify a deployed Vercel Preview, and this local-only lane does not install
+or require a hosted wallet-runner workflow.
+
 ## Artifacts And Secret Scan
 
 Runs write under `output/preprod-e2e/<timestamp>-<source-commit>/` (relative to

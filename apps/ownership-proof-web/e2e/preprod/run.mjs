@@ -558,7 +558,7 @@ function envWithManifestSnapshot(env, manifestSnapshotPath) {
   return next;
 }
 
-function assertNoPreprodArtifactSecretLeakage({ artifacts, env, cwd, repoRoot }) {
+export function assertNoPreprodArtifactSecretLeakage({ artifacts, env, cwd, repoRoot }) {
   const secrets = collectArtifactLeakageSecrets({ env, cwd, repoRoot });
   if (secrets.length === 0) {
     return;

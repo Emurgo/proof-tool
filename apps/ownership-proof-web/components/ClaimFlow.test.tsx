@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { bech32 } from "bech32";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -354,6 +354,35 @@ describe("ClaimFlow", () => {
     );
     expect(screen.getByText(/github\.com\/Anastasia-Labs\/proof-tool\/commit/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Claim review" })).not.toBeInTheDocument();
+  });
+
+  it("detects Lace when the extension injects its provider after the initial render", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(claimDeployment())));
+
+    render(<ClaimFlow />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByRole("button", { name: /No wallet found/i })).toBeDisabled();
+
+    Object.defineProperty(window, "cardano", {
+      configurable: true,
+      value: {
+        lace: {
+          name: "Lace",
+          enable: vi.fn(),
+        },
+      },
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("cardano#initialized"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button").some(
+        (button) => button.querySelector("strong")?.textContent?.includes("Lace"),
+      )).toBe(true);
+    });
+    expect(screen.queryByRole("button", { name: /No wallet found/i })).not.toBeInTheDocument();
   });
 
   it("keeps Proof Helper out of the canonical progress rail", () => {
@@ -765,6 +794,7 @@ describe("ClaimFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign and submit claim" }));
 
     await waitFor(() => expect(screen.getByText(/Recovery complete/i)).toBeInTheDocument());
+    expect(screen.getByText("1 of 1", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /11111\.\.\.11111/i })).toHaveAttribute(
       "href",
       `https://preprod.cexplorer.io/tx/${"1".repeat(64)}`,
