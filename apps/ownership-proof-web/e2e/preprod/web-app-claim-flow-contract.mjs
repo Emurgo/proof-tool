@@ -1,10 +1,7 @@
 import path from "node:path";
 import { CML } from "@lucid-evolution/lucid";
 import { TRANSACTION_APPROVAL_ENV } from "./run.mjs";
-import {
-  LACE_EXTENSION_DIR_ENV,
-  LACE_WALLET_PASSWORD_ENV,
-} from "./real-lace-driver.mjs";
+import { LACE_EXTENSION_DIR_ENV, LACE_WALLET_PASSWORD_ENV } from "./real-lace-driver.mjs";
 
 export const PREVIEW_URL_ENV = "RECLAIM_E2E_PREVIEW_URL";
 export const TARGET_MODE_ENV = "RECLAIM_E2E_TARGET_MODE";
@@ -54,16 +51,19 @@ export class WebAppClaimFlowContractError extends Error {
 }
 
 export function loadWebAppClaimFlowConfig(env = process.env, options = {}) {
-  const targetMode = String(env[TARGET_MODE_ENV] ?? TARGET_MODE_VERCEL_PREVIEW).trim().toLowerCase();
+  const targetMode = String(env[TARGET_MODE_ENV] ?? TARGET_MODE_VERCEL_PREVIEW)
+    .trim()
+    .toLowerCase();
   if (targetMode !== TARGET_MODE_VERCEL_PREVIEW && targetMode !== TARGET_MODE_LOCAL_PRODUCTION) {
     throw new WebAppClaimFlowContractError(
       "target_mode_invalid",
       `${TARGET_MODE_ENV} must be ${TARGET_MODE_VERCEL_PREVIEW} or ${TARGET_MODE_LOCAL_PRODUCTION}.`,
     );
   }
-  const previewUrl = targetMode === TARGET_MODE_LOCAL_PRODUCTION
-    ? validateLocalProductionUrl(required(env[PREVIEW_URL_ENV], PREVIEW_URL_ENV))
-    : validatePreviewUrl(required(env[PREVIEW_URL_ENV], PREVIEW_URL_ENV));
+  const previewUrl =
+    targetMode === TARGET_MODE_LOCAL_PRODUCTION
+      ? validateLocalProductionUrl(required(env[PREVIEW_URL_ENV], PREVIEW_URL_ENV))
+      : validatePreviewUrl(required(env[PREVIEW_URL_ENV], PREVIEW_URL_ENV));
   const expectedCommitSha = required(env[EXPECTED_COMMIT_SHA_ENV], EXPECTED_COMMIT_SHA_ENV).toLowerCase();
   if (!/^[0-9a-f]{40}$/u.test(expectedCommitSha)) {
     throw new WebAppClaimFlowContractError(
@@ -71,14 +71,19 @@ export function loadWebAppClaimFlowConfig(env = process.env, options = {}) {
       `${EXPECTED_COMMIT_SHA_ENV} must be a full 40-character Git commit SHA.`,
     );
   }
-  const prMergeSha = String(env[PR_MERGE_SHA_ENV] ?? "").trim().toLowerCase();
+  const prMergeSha = String(env[PR_MERGE_SHA_ENV] ?? "")
+    .trim()
+    .toLowerCase();
   if (prMergeSha && !/^[0-9a-f]{40}$/u.test(prMergeSha)) {
     throw new WebAppClaimFlowContractError(
       "pr_merge_commit_invalid",
       `${PR_MERGE_SHA_ENV} must be empty or a full 40-character Git commit SHA.`,
     );
   }
-  const expectedPrNumber = parsePositiveInteger(required(env[EXPECTED_PR_NUMBER_ENV], EXPECTED_PR_NUMBER_ENV), EXPECTED_PR_NUMBER_ENV);
+  const expectedPrNumber = parsePositiveInteger(
+    required(env[EXPECTED_PR_NUMBER_ENV], EXPECTED_PR_NUMBER_ENV),
+    EXPECTED_PR_NUMBER_ENV,
+  );
   const configuredOutref = String(env[EXPECTED_CLAIM_OUTREF_ENV] ?? "")
     .trim()
     .toLowerCase();
@@ -152,14 +157,14 @@ export function validateLocalProductionUrl(value) {
     throw new WebAppClaimFlowContractError("local_url_invalid", `${PREVIEW_URL_ENV} must be a valid localhost URL.`);
   }
   if (
-    url.protocol !== "http:"
-    || url.hostname !== "127.0.0.1"
-    || !url.port
-    || url.username
-    || url.password
-    || url.search
-    || url.hash
-    || url.pathname !== "/"
+    url.protocol !== "http:" ||
+    url.hostname !== "127.0.0.1" ||
+    !url.port ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/"
   ) {
     throw new WebAppClaimFlowContractError(
       "local_url_invalid",
@@ -183,21 +188,33 @@ export function validatePreviewUrl(value) {
     );
   }
   if (url.pathname !== "/") {
-    throw new WebAppClaimFlowContractError("preview_url_invalid", `${PREVIEW_URL_ENV} must identify the deployment origin, not an app path.`);
+    throw new WebAppClaimFlowContractError(
+      "preview_url_invalid",
+      `${PREVIEW_URL_ENV} must identify the deployment origin, not an app path.`,
+    );
   }
   const hostname = url.hostname.toLowerCase();
   if (hostname === PRODUCTION_WEB_HOST) {
-    throw new WebAppClaimFlowContractError("preview_is_production", "The production Proof Tool deployment must never be used by this lane.");
+    throw new WebAppClaimFlowContractError(
+      "preview_is_production",
+      "The production Proof Tool deployment must never be used by this lane.",
+    );
   }
   if (!hostname.endsWith(".vercel.app")) {
-    throw new WebAppClaimFlowContractError("preview_url_invalid", `${PREVIEW_URL_ENV} must be a Vercel Preview deployment hostname.`);
+    throw new WebAppClaimFlowContractError(
+      "preview_url_invalid",
+      `${PREVIEW_URL_ENV} must be a Vercel Preview deployment hostname.`,
+    );
   }
   return url;
 }
 
 export function validatePreviewProvenance(provenance, config) {
   if (!provenance || provenance.schema !== "proof-tool-web-build-provenance-v1") {
-    throw new WebAppClaimFlowContractError("preview_provenance_unavailable", "Preview build provenance is missing or has an unsupported schema.");
+    throw new WebAppClaimFlowContractError(
+      "preview_provenance_unavailable",
+      "Preview build provenance is missing or has an unsupported schema.",
+    );
   }
   if (config.targetMode === TARGET_MODE_LOCAL_PRODUCTION) {
     return validateLocalProductionProvenance(provenance, config);
@@ -209,7 +226,10 @@ export function validatePreviewProvenance(provenance, config) {
     );
   }
   if (provenance.environment !== "preview") {
-    throw new WebAppClaimFlowContractError("preview_is_production", "The target deployment did not report the Vercel Preview environment.");
+    throw new WebAppClaimFlowContractError(
+      "preview_is_production",
+      "The target deployment did not report the Vercel Preview environment.",
+    );
   }
   const suppliedHost = config.previewUrl.hostname.toLowerCase();
   const deploymentHost = normalizeVercelHost(provenance.deploymentUrl);
@@ -221,17 +241,29 @@ export function validatePreviewProvenance(provenance, config) {
   }
   const productionHost = normalizeVercelHost(provenance.productionUrl);
   if (productionHost && suppliedHost === productionHost) {
-    throw new WebAppClaimFlowContractError("preview_is_production", "The supplied URL resolves to the Vercel production hostname.");
+    throw new WebAppClaimFlowContractError(
+      "preview_is_production",
+      "The supplied URL resolves to the Vercel production hostname.",
+    );
   }
   const branchHost = normalizeVercelHost(provenance.branchUrl);
   if (branchHost && branchHost !== deploymentHost && suppliedHost === branchHost) {
-    throw new WebAppClaimFlowContractError("preview_url_is_branch_alias", "A mutable Vercel branch alias cannot be used as acceptance evidence.");
+    throw new WebAppClaimFlowContractError(
+      "preview_url_is_branch_alias",
+      "A mutable Vercel branch alias cannot be used as acceptance evidence.",
+    );
   }
   if (String(provenance.commitSha ?? "").toLowerCase() !== config.expectedCommitSha) {
-    throw new WebAppClaimFlowContractError("preview_commit_mismatch", "The Vercel Preview commit does not match the expected PR head SHA.");
+    throw new WebAppClaimFlowContractError(
+      "preview_commit_mismatch",
+      "The Vercel Preview commit does not match the expected PR head SHA.",
+    );
   }
   if (String(provenance.pullRequestId ?? "") !== String(config.expectedPrNumber)) {
-    throw new WebAppClaimFlowContractError("preview_pr_mismatch", "The Vercel Preview PR id does not match the expected pull request.");
+    throw new WebAppClaimFlowContractError(
+      "preview_pr_mismatch",
+      "The Vercel Preview PR id does not match the expected pull request.",
+    );
   }
   return Object.freeze({
     environment: provenance.environment,
@@ -287,17 +319,29 @@ function validateLocalProductionProvenance(provenance, config) {
 
 export function validateBrowserWasmClaimDeployment(response) {
   if (!response?.available || !response.deployment) {
-    throw new WebAppClaimFlowContractError("preprod_manifest_incoherent", "The claim deployment endpoint is unavailable.");
+    throw new WebAppClaimFlowContractError(
+      "preprod_manifest_incoherent",
+      "The claim deployment endpoint is unavailable.",
+    );
   }
   const deployment = response.deployment;
   if (deployment.network !== "Preprod" || deployment.networkId !== 0) {
-    throw new WebAppClaimFlowContractError("preprod_manifest_incoherent", "The target claim deployment must be Cardano Preprod network id 0.");
+    throw new WebAppClaimFlowContractError(
+      "preprod_manifest_incoherent",
+      "The target claim deployment must be Cardano Preprod network id 0.",
+    );
   }
   if (!deployment.proof?.browser_proving?.enabled) {
-    throw new WebAppClaimFlowContractError("browser_wasm_unavailable", "The target deployment does not enable browser-WASM proving.");
+    throw new WebAppClaimFlowContractError(
+      "browser_wasm_unavailable",
+      "The target deployment does not enable browser-WASM proving.",
+    );
   }
   if (!/^(?:blake2b256:)?[0-9a-f]{64}$/u.test(String(deployment.verifierVkHash ?? ""))) {
-    throw new WebAppClaimFlowContractError("preprod_manifest_incoherent", "The target deployment does not expose a valid pinned verifier-key hash.");
+    throw new WebAppClaimFlowContractError(
+      "preprod_manifest_incoherent",
+      "The target deployment does not expose a valid pinned verifier-key hash.",
+    );
   }
   return Object.freeze({
     deploymentId: deployment.id,
@@ -333,16 +377,28 @@ export function assertCompleteScreenshotLedger(capturedNames) {
 
 export function validateClaimBuildReview(build, expectedOutref, safeAddress) {
   if (!build || build.review?.selectedOutrefs?.length !== 1 || build.review.selectedOutrefs[0] !== expectedOutref) {
-    throw new WebAppClaimFlowContractError("transaction_review_mismatch", "The built transaction does not contain exactly the prepared claim input.");
+    throw new WebAppClaimFlowContractError(
+      "transaction_review_mismatch",
+      "The built transaction does not contain exactly the prepared claim input.",
+    );
   }
   if (!Array.isArray(build.review.destinationOutputs) || build.review.destinationOutputs.length !== 1) {
-    throw new WebAppClaimFlowContractError("transaction_review_mismatch", "The built transaction does not contain exactly one claim destination output.");
+    throw new WebAppClaimFlowContractError(
+      "transaction_review_mismatch",
+      "The built transaction does not contain exactly one claim destination output.",
+    );
   }
   if (build.review.destinationOutputs[0].address !== safeAddress) {
-    throw new WebAppClaimFlowContractError("transaction_review_mismatch", "The built transaction destination is not the verified safe Lace address.");
+    throw new WebAppClaimFlowContractError(
+      "transaction_review_mismatch",
+      "The built transaction destination is not the verified safe Lace address.",
+    );
   }
   if (!/^[0-9a-f]{64}$/u.test(String(build.txHash ?? ""))) {
-    throw new WebAppClaimFlowContractError("transaction_review_mismatch", "The build response did not contain a valid transaction hash.");
+    throw new WebAppClaimFlowContractError(
+      "transaction_review_mismatch",
+      "The build response did not contain a valid transaction hash.",
+    );
   }
   return build;
 }
@@ -436,8 +492,15 @@ export function validateClaimTransactionSafety(build, expectedOutref, safeAddres
 }
 
 export function validateClaimSubmit(submit, build, expectedOutref) {
-  if (submit?.txHash !== build.txHash || submit?.selectedOutrefs?.length !== 1 || submit.selectedOutrefs[0] !== expectedOutref) {
-    throw new WebAppClaimFlowContractError("receipt_transaction_mismatch", "The submitted transaction does not match the reviewed build and prepared outref.");
+  if (
+    submit?.txHash !== build.txHash ||
+    submit?.selectedOutrefs?.length !== 1 ||
+    submit.selectedOutrefs[0] !== expectedOutref
+  ) {
+    throw new WebAppClaimFlowContractError(
+      "receipt_transaction_mismatch",
+      "The submitted transaction does not match the reviewed build and prepared outref.",
+    );
   }
   return submit;
 }
@@ -453,7 +516,11 @@ export function redactedProvenanceArtifact(provenance) {
 }
 
 export function requestContainsRecoveryPhraseMaterial(url, postData, mnemonic) {
-  const words = String(mnemonic ?? "").trim().toLowerCase().split(/\s+/u).filter(Boolean);
+  const words = String(mnemonic ?? "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/u)
+    .filter(Boolean);
   if (words.length < 12) {
     throw new WebAppClaimFlowContractError(
       "recovery_phrase_guard_invalid",
@@ -466,7 +533,10 @@ export function requestContainsRecoveryPhraseMaterial(url, postData, mnemonic) {
   } catch {
     // Malformed URL encoding remains searchable in its original form.
   }
-  const normalized = raw.replace(/[^a-z]+/gu, " ").trim().replace(/\s+/gu, " ");
+  const normalized = raw
+    .replace(/[^a-z]+/gu, " ")
+    .trim()
+    .replace(/\s+/gu, " ");
   if (normalized.includes(words.join(" "))) {
     return true;
   }
@@ -476,7 +546,11 @@ export function requestContainsRecoveryPhraseMaterial(url, postData, mnemonic) {
 }
 
 function normalizeVercelHost(value) {
-  const normalized = String(value ?? "").trim().toLowerCase().replace(/^https?:\/\//u, "").replace(/\/$/u, "");
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//u, "")
+    .replace(/\/$/u, "");
   if (!normalized || normalized.includes("/") || normalized.includes("?") || normalized.includes("#")) {
     return null;
   }
@@ -535,7 +609,9 @@ function normalizeAssetMap(value) {
 function assetMapsEqual(left, right) {
   const leftEntries = Object.entries(left);
   const rightEntries = Object.entries(right);
-  return leftEntries.length === rightEntries.length && rightEntries.every(([unit, quantity]) => left[unit] === quantity);
+  return (
+    leftEntries.length === rightEntries.length && rightEntries.every(([unit, quantity]) => left[unit] === quantity)
+  );
 }
 
 function required(value, field) {

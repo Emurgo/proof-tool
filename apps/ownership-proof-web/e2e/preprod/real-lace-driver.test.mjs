@@ -172,18 +172,20 @@ describe("real Lace profile driver", () => {
     await driver.installSigningObserver(page);
     const init = initScripts[0];
     init.script(init.argument);
-    globalThis.dispatchEvent(new MessageEvent("message", {
-      data: {
-        request: {
-          method: "lace/cardano-wallet-api/signTx",
-          args: [
-            { dataType: "primitive", value: "84a00000" },
-            { dataType: "primitive", value: true },
-          ],
+    globalThis.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          request: {
+            method: "lace/cardano-wallet-api/signTx",
+            args: [
+              { dataType: "primitive", value: "84a00000" },
+              { dataType: "primitive", value: true },
+            ],
+          },
         },
-      },
-      source: globalThis,
-    }));
+        source: globalThis,
+      }),
+    );
     expect(globalThis[init.argument.key].calls).toEqual([
       expect.objectContaining({ txCbor: "84a00000", partialSign: true }),
     ]);
@@ -234,12 +236,7 @@ describe("real Lace profile driver", () => {
       beforeApprove: async () => clicks.push("before-sign"),
     });
 
-    expect(clicks).toEqual([
-      "before-sign",
-      "sign",
-      "password:test-password",
-      "authenticate:auto-waited",
-    ]);
+    expect(clicks).toEqual(["before-sign", "sign", "password:test-password", "authenticate:auto-waited"]);
     expect(driver.roleState("safe_claim_destination").signAttempts).toBe(1);
   });
 
@@ -269,12 +266,7 @@ describe("real Lace profile driver", () => {
       beforeApprove: async () => clicks.push("before-authorize"),
     });
 
-    expect(clicks).toEqual([
-      "dropdown",
-      "account:compromised_user",
-      "before-authorize",
-      "authorize",
-    ]);
+    expect(clicks).toEqual(["dropdown", "account:compromised_user", "before-authorize", "authorize"]);
   });
 
   it("disconnects the exact local origin through Lace Authorized DApps", async () => {
@@ -305,13 +297,7 @@ describe("real Lace profile driver", () => {
     });
 
     expect(result).toBe(page);
-    expect(clicks).toEqual([
-      "unlock",
-      "settings",
-      "authorized-dapps",
-      "before-disconnect",
-      `disconnect:${origin}`,
-    ]);
+    expect(clicks).toEqual(["unlock", "settings", "authorized-dapps", "before-disconnect", `disconnect:${origin}`]);
   });
 
   it("reports a rejected persisted password as an unlock failure", async () => {
@@ -348,7 +334,10 @@ function words(prefix, count) {
     "kitten",
     "ladder",
   ];
-  return suffixes.slice(0, count).map((suffix) => `${prefix}${suffix}`).join(" ");
+  return suffixes
+    .slice(0, count)
+    .map((suffix) => `${prefix}${suffix}`)
+    .join(" ");
 }
 
 function deriveRoleState({ role, mnemonic, label }) {
@@ -479,10 +468,7 @@ function fakeLaceSignContext() {
       return false;
     },
     locator(selector) {
-      if (
-        selector ===
-        'body:has([data-testid="sign-tx-origin"]) [data-testid="dapp-connector-primary-button"]'
-      ) {
+      if (selector === 'body:has([data-testid="sign-tx-origin"]) [data-testid="dapp-connector-primary-button"]') {
         return makeLocator("sign");
       }
       if (selector === '[data-testid="authentication-prompt-input-value"]') return makeLocator("auth-input");

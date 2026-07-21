@@ -120,11 +120,19 @@ export function validateReclaimManifest(raw) {
   if (/dirty|uncommitted/iu.test(String(raw.source_commit || ""))) {
     errors.push({ field: "source_commit", message: "source_commit must be a clean tag or commit" });
   }
-  exact(base.required_global_credential, global.rewarding_credential, "reclaim_base.required_global_credential", errors);
+  exact(
+    base.required_global_credential,
+    global.rewarding_credential,
+    "reclaim_base.required_global_credential",
+    errors,
+  );
   exact(global.verifier_vk_hash, proof.vk_hash, "proof.vk_hash", errors);
   exact(params.datum_reclaim_base_script_hash, base.script_hash, "params_utxo.datum_reclaim_base_script_hash", errors);
   exact(params.policy_id, global.params_currency_symbol, "params_utxo.policy_id", errors);
-  if (batching.default_utxo_count > batching.optimization_utxo_count || batching.optimization_utxo_count > batching.hard_max_utxo_count) {
+  if (
+    batching.default_utxo_count > batching.optimization_utxo_count ||
+    batching.optimization_utxo_count > batching.hard_max_utxo_count
+  ) {
     errors.push({ field: "batching", message: "batch caps must satisfy default <= optimization <= hard max" });
   }
   if (batching.hard_max_utxo_count > DISTINCT_7_REQUEST_VALUE) {
@@ -134,36 +142,16 @@ export function validateReclaimManifest(raw) {
     });
   }
   distinctSevenOptIn(batching.distinct_7_opt_in, "batching.distinct_7_opt_in", errors);
-  exact(
-    batching.default_utxo_count,
-    DISTINCT_7_DEFAULT_UTXO_COUNT,
-    "batching.default_utxo_count",
-    errors,
-  );
+  exact(batching.default_utxo_count, DISTINCT_7_DEFAULT_UTXO_COUNT, "batching.default_utxo_count", errors);
   exact(
     batching.optimization_utxo_count,
     DISTINCT_7_OPTIMIZATION_UTXO_COUNT,
     "batching.optimization_utxo_count",
     errors,
   );
-  exact(
-    batching.hard_max_utxo_count,
-    DISTINCT_7_REQUEST_VALUE,
-    "batching.hard_max_utxo_count",
-    errors,
-  );
-  exact(
-    batching.max_tx_cpu_percent,
-    DISTINCT_7_MAX_TX_CPU_PERCENT,
-    "batching.max_tx_cpu_percent",
-    errors,
-  );
-  exact(
-    batching.max_tx_mem_percent,
-    DISTINCT_7_MAX_TX_MEM_PERCENT,
-    "batching.max_tx_mem_percent",
-    errors,
-  );
+  exact(batching.hard_max_utxo_count, DISTINCT_7_REQUEST_VALUE, "batching.hard_max_utxo_count", errors);
+  exact(batching.max_tx_cpu_percent, DISTINCT_7_MAX_TX_CPU_PERCENT, "batching.max_tx_cpu_percent", errors);
+  exact(batching.max_tx_mem_percent, DISTINCT_7_MAX_TX_MEM_PERCENT, "batching.max_tx_mem_percent", errors);
   if (raw.enabled === false) {
     errors.push({ field: "enabled", message: "manifest is explicitly disabled" });
   }
@@ -231,25 +219,10 @@ function distinctSevenOptIn(value, field, errors) {
       errors.push({ field: `${field}.${key}`, message: "is not part of the explicit seven-slot opt-in policy" });
     }
   }
-  exact(
-    policy.request_parameter,
-    DISTINCT_7_REQUEST_PARAMETER,
-    `${field}.request_parameter`,
-    errors,
-  );
+  exact(policy.request_parameter, DISTINCT_7_REQUEST_PARAMETER, `${field}.request_parameter`, errors);
   exact(policy.request_value, DISTINCT_7_REQUEST_VALUE, `${field}.request_value`, errors);
-  exact(
-    policy.require_explicit_request,
-    true,
-    `${field}.require_explicit_request`,
-    errors,
-  );
-  exact(
-    policy.require_measured_execution_units,
-    true,
-    `${field}.require_measured_execution_units`,
-    errors,
-  );
+  exact(policy.require_explicit_request, true, `${field}.require_explicit_request`, errors);
+  exact(policy.require_measured_execution_units, true, `${field}.require_measured_execution_units`, errors);
 }
 
 function fail(message) {

@@ -11,16 +11,11 @@ export async function runPrPushWithLocalClaimFlow(options = {}) {
   const capture = options.capture ?? createCapture(defaultExecFile);
   const spawn = options.spawn ?? defaultSpawn;
   const localRunner = options.localRunner ?? runLocalPrClaimFlow;
-  const initialBranch = (await capture(
-    "git",
-    ["-C", repoRoot, "symbolic-ref", "--short", "HEAD"],
-  )).trim();
+  const initialBranch = (await capture("git", ["-C", repoRoot, "symbolic-ref", "--short", "HEAD"])).trim();
   try {
-    await runInherited(
-      "git",
-      buildPushArgs({ branch: initialBranch, dryRun: true, remote: parsed.remote, repoRoot }),
-      { spawn },
-    );
+    await runInherited("git", buildPushArgs({ branch: initialBranch, dryRun: true, remote: parsed.remote, repoRoot }), {
+      spawn,
+    });
   } catch {
     throw new LocalPrClaimFlowError(
       "local_push_preflight_failed",
@@ -35,13 +30,9 @@ export async function runPrPushWithLocalClaimFlow(options = {}) {
 
   const afterSha = (await capture("git", ["-C", repoRoot, "rev-parse", "HEAD"])).trim().toLowerCase();
   const afterBranch = (await capture("git", ["-C", repoRoot, "symbolic-ref", "--short", "HEAD"])).trim();
-  const afterStatus = (await capture("git", [
-    "-C",
-    repoRoot,
-    "status",
-    "--porcelain=v1",
-    "--untracked-files=normal",
-  ])).trim();
+  const afterStatus = (
+    await capture("git", ["-C", repoRoot, "status", "--porcelain=v1", "--untracked-files=normal"])
+  ).trim();
   assertPushHeadStable({
     afterBranch,
     afterSha,
@@ -50,11 +41,9 @@ export async function runPrPushWithLocalClaimFlow(options = {}) {
     testedSha: result.git.commitSha,
   });
 
-  await runInherited(
-    "git",
-    buildPushArgs({ branch: afterBranch, dryRun: false, remote: parsed.remote, repoRoot }),
-    { spawn },
-  );
+  await runInherited("git", buildPushArgs({ branch: afterBranch, dryRun: false, remote: parsed.remote, repoRoot }), {
+    spawn,
+  });
   return {
     branch: afterBranch,
     commitSha: afterSha,
@@ -65,14 +54,7 @@ export async function runPrPushWithLocalClaimFlow(options = {}) {
 }
 
 export function buildPushArgs({ branch, dryRun, remote, repoRoot }) {
-  return [
-    "-C",
-    repoRoot,
-    "push",
-    ...(dryRun ? ["--dry-run", "--no-verify"] : []),
-    remote,
-    `HEAD:refs/heads/${branch}`,
-  ];
+  return ["-C", repoRoot, "push", ...(dryRun ? ["--dry-run", "--no-verify"] : []), remote, `HEAD:refs/heads/${branch}`];
 }
 
 export function parsePrPushArgs(argv) {
@@ -127,10 +109,12 @@ function runInherited(command, args, { spawn }) {
         resolve();
         return;
       }
-      reject(new LocalPrClaimFlowError(
-        "local_push_failed",
-        `git push failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`,
-      ));
+      reject(
+        new LocalPrClaimFlowError(
+          "local_push_failed",
+          `git push failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`,
+        ),
+      );
     });
   });
 }
@@ -138,7 +122,9 @@ function runInherited(command, args, { spawn }) {
 export async function main(argv = process.argv.slice(2)) {
   try {
     const result = await runPrPushWithLocalClaimFlow({ argv });
-    console.log(`Pushed ${result.branch}@${result.commitSha.slice(0, 12)} after live local claim ${result.transactionHash}.`);
+    console.log(
+      `Pushed ${result.branch}@${result.commitSha.slice(0, 12)} after live local claim ${result.transactionHash}.`,
+    );
   } catch (error) {
     console.error(`${error?.code ?? "local_pr_push_failed"}: ${error?.message ?? String(error)}`);
     process.exitCode = 1;

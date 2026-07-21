@@ -14,19 +14,18 @@ const FUNDING_ROLE = "reclaim_funder";
 const COMPROMISED_ROLE = "compromised_user";
 
 export async function prepareOrResumeAdaOnlyClaimFixture(options = {}) {
-  const {
-    browserLauncher,
-    config,
-    expectedPaymentCredential,
-    fetchFn,
-    headers = {},
-    outputArtifacts = [],
-  } = options;
+  const { browserLauncher, config, expectedPaymentCredential, fetchFn, headers = {}, outputArtifacts = [] } = options;
   if (!browserLauncher || typeof browserLauncher.launch !== "function") {
-    throw new WebAppClaimFlowContractError("fixture_browser_unavailable", "Bundled Chromium is required to prepare the claim fixture.");
+    throw new WebAppClaimFlowContractError(
+      "fixture_browser_unavailable",
+      "Bundled Chromium is required to prepare the claim fixture.",
+    );
   }
   if (typeof fetchFn !== "function") {
-    throw new WebAppClaimFlowContractError("fixture_provider_unavailable", "fetch is required to prepare the claim fixture.");
+    throw new WebAppClaimFlowContractError(
+      "fixture_provider_unavailable",
+      "fetch is required to prepare the claim fixture.",
+    );
   }
 
   const initialMatches = await listEligibleClaims(fetchFn, config.baseUrl, headers, expectedPaymentCredential);
@@ -80,9 +79,14 @@ export async function prepareOrResumeAdaOnlyClaimFixture(options = {}) {
     await browser.close().catch(() => undefined);
   }
 
-  const submittedTxHash = String(funding?.summary?.submittedTxHash ?? "").trim().toLowerCase();
+  const submittedTxHash = String(funding?.summary?.submittedTxHash ?? "")
+    .trim()
+    .toLowerCase();
   if (!/^[0-9a-f]{64}$/u.test(submittedTxHash)) {
-    throw new WebAppClaimFlowContractError("fixture_funding_tx_invalid", "The fixture funding flow did not return a valid submitted transaction hash.");
+    throw new WebAppClaimFlowContractError(
+      "fixture_funding_tx_invalid",
+      "The fixture funding flow did not return a valid submitted transaction hash.",
+    );
   }
   const match = await waitForFundedClaim({
     baseUrl: config.baseUrl,
@@ -108,7 +112,10 @@ export async function listEligibleClaims(fetchFn, baseUrl, headers, paymentCrede
     }
     const response = await fetchJson(fetchFn, url, headers);
     if (!response?.available || !Array.isArray(response.utxos)) {
-      throw new WebAppClaimFlowContractError("fixture_provider_unavailable", "The provider-backed reclaim index is unavailable.");
+      throw new WebAppClaimFlowContractError(
+        "fixture_provider_unavailable",
+        "The provider-backed reclaim index is unavailable.",
+      );
     }
     matches.push(
       ...response.utxos.filter(
@@ -140,11 +147,23 @@ function assertFixtureWalletIdentity(walletDriver, expectedPaymentCredential) {
   }
 }
 
-async function waitForFundedClaim({ baseUrl, expectedPaymentCredential, fetchFn, headers, submittedTxHash, sleep, timeoutMs }) {
+async function waitForFundedClaim({
+  baseUrl,
+  expectedPaymentCredential,
+  fetchFn,
+  headers,
+  submittedTxHash,
+  sleep,
+  timeoutMs,
+}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
     const matches = await listEligibleClaims(fetchFn, baseUrl, headers, expectedPaymentCredential);
-    const transactionMatches = matches.filter((utxo) => String(utxo.outRefId ?? "").toLowerCase().startsWith(`${submittedTxHash}#`));
+    const transactionMatches = matches.filter((utxo) =>
+      String(utxo.outRefId ?? "")
+        .toLowerCase()
+        .startsWith(`${submittedTxHash}#`),
+    );
     if (transactionMatches.length === 1 && matches.length === 1) {
       return transactionMatches[0];
     }
@@ -181,13 +200,19 @@ async function fetchJson(fetchFn, url, headers) {
   try {
     return await response.json();
   } catch {
-    throw new WebAppClaimFlowContractError("fixture_provider_unavailable", "The reclaim index did not return valid JSON.");
+    throw new WebAppClaimFlowContractError(
+      "fixture_provider_unavailable",
+      "The reclaim index did not return valid JSON.",
+    );
   }
 }
 
 function assertAdaOnly(utxo) {
   if (!utxo || typeof utxo.outRefId !== "string" || !/^[0-9a-f]{64}#[0-9]+$/u.test(utxo.outRefId.toLowerCase())) {
-    throw new WebAppClaimFlowContractError("fixture_outref_invalid", "Prepared fixture does not expose a valid Cardano outref.");
+    throw new WebAppClaimFlowContractError(
+      "fixture_outref_invalid",
+      "Prepared fixture does not expose a valid Cardano outref.",
+    );
   }
   const nativeAssetCount = Object.keys(utxo.value ?? {}).filter((unit) => unit !== "lovelace").length;
   if (nativeAssetCount !== 0) {

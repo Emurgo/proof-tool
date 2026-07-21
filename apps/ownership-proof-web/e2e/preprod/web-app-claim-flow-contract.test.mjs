@@ -33,7 +33,9 @@ describe("web-app claim flow contract", () => {
     expect(config.expectedPrNumber).toBe(42);
     expect(config.fixtureMode).toBe("existing");
     expect(config.expectedOutref).toBe(outref);
-    expect(config.outputDir).toContain("output/preprod-web-app-claim-flow-wasm-lace/2026-07-15T12-00-00-000Z-aaaaaaaaaaaa");
+    expect(config.outputDir).toContain(
+      "output/preprod-web-app-claim-flow-wasm-lace/2026-07-15T12-00-00-000Z-aaaaaaaaaaaa",
+    );
   });
 
   it("defaults to lane-prepared fixture setup when no outref is supplied", () => {
@@ -46,19 +48,27 @@ describe("web-app claim flow contract", () => {
     expect(() => loadWebAppClaimFlowConfig({ ...env, RECLAIM_E2E_FIXTURE_MODE: "existing" })).toThrowError(
       expect.objectContaining({ code: "fixture_outref_missing" }),
     );
-    expect(() =>
-      loadWebAppClaimFlowConfig({ ...validEnv(), RECLAIM_E2E_FIXTURE_MODE: "prepare" }),
-    ).toThrowError(expect.objectContaining({ code: "fixture_configuration_ambiguous" }));
-    expect(() =>
-      loadWebAppClaimFlowConfig({ ...env, RECLAIM_E2E_PR_MERGE_SHA: "not-a-full-sha" }),
-    ).toThrowError(expect.objectContaining({ code: "pr_merge_commit_invalid" }));
+    expect(() => loadWebAppClaimFlowConfig({ ...validEnv(), RECLAIM_E2E_FIXTURE_MODE: "prepare" })).toThrowError(
+      expect.objectContaining({ code: "fixture_configuration_ambiguous" }),
+    );
+    expect(() => loadWebAppClaimFlowConfig({ ...env, RECLAIM_E2E_PR_MERGE_SHA: "not-a-full-sha" })).toThrowError(
+      expect.objectContaining({ code: "pr_merge_commit_invalid" }),
+    );
   });
 
   it("rejects production, non-Vercel, mutable, or non-origin targets", () => {
-    expect(() => validatePreviewUrl("https://proof-tool.vercel.app/")).toThrowError(expect.objectContaining({ code: "preview_is_production" }));
-    expect(() => validatePreviewUrl("https://example.com/")).toThrowError(expect.objectContaining({ code: "preview_url_invalid" }));
-    expect(() => validatePreviewUrl(`https://${deploymentHost}/claim`)).toThrowError(expect.objectContaining({ code: "preview_url_invalid" }));
-    expect(() => validatePreviewUrl(`https://${deploymentHost}/?secret=value`)).toThrowError(expect.objectContaining({ code: "preview_url_invalid" }));
+    expect(() => validatePreviewUrl("https://proof-tool.vercel.app/")).toThrowError(
+      expect.objectContaining({ code: "preview_is_production" }),
+    );
+    expect(() => validatePreviewUrl("https://example.com/")).toThrowError(
+      expect.objectContaining({ code: "preview_url_invalid" }),
+    );
+    expect(() => validatePreviewUrl(`https://${deploymentHost}/claim`)).toThrowError(
+      expect.objectContaining({ code: "preview_url_invalid" }),
+    );
+    expect(() => validatePreviewUrl(`https://${deploymentHost}/?secret=value`)).toThrowError(
+      expect.objectContaining({ code: "preview_url_invalid" }),
+    );
   });
 
   it("accepts only an explicitly marked localhost production emulation", () => {
@@ -198,17 +208,20 @@ describe("web-app claim flow contract", () => {
       },
     };
     expect(validateClaimBuildReview(build, outref, safeAddress)).toBe(build);
-    expect(validateClaimSubmit({ txHash: build.txHash, selectedOutrefs: [outref] }, build, outref)).toMatchObject({ txHash: build.txHash });
+    expect(validateClaimSubmit({ txHash: build.txHash, selectedOutrefs: [outref] }, build, outref)).toMatchObject({
+      txHash: build.txHash,
+    });
     expect(() => validateClaimBuildReview(build, outref, "addr_test1different")).toThrowError(
       expect.objectContaining({ code: "transaction_review_mismatch" }),
     );
-    expect(() => validateClaimSubmit({ txHash: "f".repeat(64), selectedOutrefs: [outref] }, build, outref)).toThrowError(
-      expect.objectContaining({ code: "receipt_transaction_mismatch" }),
-    );
+    expect(() =>
+      validateClaimSubmit({ txHash: "f".repeat(64), selectedOutrefs: [outref] }, build, outref),
+    ).toThrowError(expect.objectContaining({ code: "receipt_transaction_mismatch" }));
   });
 
   it("inspects the actual transaction body before Lace may sign", () => {
-    const safeAddress = "addr_test1qq8ac7qqy0vtulyl7wntmsxc6wex80gvcyjy33qffrhm7sh927ysx5sftuw0dlft05dz3c7revpf7jx0xnlcjz3g69mqkt5dmn";
+    const safeAddress =
+      "addr_test1qq8ac7qqy0vtulyl7wntmsxc6wex80gvcyjy33qffrhm7sh927ysx5sftuw0dlft05dz3c7revpf7jx0xnlcjz3g69mqkt5dmn";
     const safeInputHash = "c".repeat(64);
     const build = transactionBuild({
       inputOutrefs: [outref, `${safeInputHash}#1`],
@@ -221,7 +234,9 @@ describe("web-app claim flow contract", () => {
 
     const maliciousOutput = transactionBuild({
       inputOutrefs: [outref, `${safeInputHash}#1`],
-      outputAddresses: ["addr_test1qzttdu6d96klw8xvme7ctwuv0jg7xns0vm35ksv4l722aupyayzk39uascqj78hynwh3ax5w8ch5n9062k0vpnj3dlpsjt6afz"],
+      outputAddresses: [
+        "addr_test1qzttdu6d96klw8xvme7ctwuv0jg7xns0vm35ksv4l722aupyayzk39uascqj78hynwh3ax5w8ch5n9062k0vpnj3dlpsjt6afz",
+      ],
       safeAddress,
     });
     expect(() => validateClaimTransactionSafety(maliciousOutput, outref, safeAddress, safeUtxos)).toThrowError(
@@ -248,9 +263,27 @@ describe("web-app claim flow contract", () => {
 
   it("detects recovery-phrase material before a browser request is released", () => {
     const mnemonic = "abandon ability able about above absent absorb abstract absurd abuse access accident";
-    expect(requestContainsRecoveryPhraseMaterial("https://preview.vercel.app/collect", JSON.stringify({ mnemonic }), mnemonic)).toBe(true);
-    expect(requestContainsRecoveryPhraseMaterial("https://preview.vercel.app/collect?one=abandon&two=ability&three=able", null, mnemonic)).toBe(true);
-    expect(requestContainsRecoveryPhraseMaterial("https://preview.vercel.app/claim-api/build", JSON.stringify({ proof: "00ff" }), mnemonic)).toBe(false);
+    expect(
+      requestContainsRecoveryPhraseMaterial(
+        "https://preview.vercel.app/collect",
+        JSON.stringify({ mnemonic }),
+        mnemonic,
+      ),
+    ).toBe(true);
+    expect(
+      requestContainsRecoveryPhraseMaterial(
+        "https://preview.vercel.app/collect?one=abandon&two=ability&three=able",
+        null,
+        mnemonic,
+      ),
+    ).toBe(true);
+    expect(
+      requestContainsRecoveryPhraseMaterial(
+        "https://preview.vercel.app/claim-api/build",
+        JSON.stringify({ proof: "00ff" }),
+        mnemonic,
+      ),
+    ).toBe(false);
   });
 });
 

@@ -1,7 +1,6 @@
 export type ReclaimNetwork = "Mainnet" | "Preprod" | "Preview";
 
-export type ReclaimGlobalProofSlotEncoding =
-  "full-proof-plus-public-input-digest-v2";
+export type ReclaimGlobalProofSlotEncoding = "full-proof-plus-public-input-digest-v2";
 
 export type ReclaimDistinctSevenOptIn = {
   // The serialized field name records the distinct-7 capacity benchmark. It

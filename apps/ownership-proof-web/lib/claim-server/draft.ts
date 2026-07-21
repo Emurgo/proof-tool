@@ -68,14 +68,19 @@ export async function createClaimDraft(
     reclaimUtxos = await loadSelectedReclaimUtxos(provider, selectedOutrefs);
   } else {
     if (raw.nextBatch !== true) {
-      throw new ClaimValidationError("claim_batch_selection_required", "Claim draft requires selected outrefs or nextBatch=true.");
+      throw new ClaimValidationError(
+        "claim_batch_selection_required",
+        "Claim draft requires selected outrefs or nextBatch=true.",
+      );
     }
     const allUtxos = await provider.getUtxos(deployment.reclaimBaseAddress);
     const eligible = allUtxos
       .filter((utxo) => !pendingOutrefs.has(outRefToString(utxo)))
       .filter((utxo) => utxo.address === deployment.reclaimBaseAddress)
       .filter((utxo) => toIndexedReclaimUtxo(utxo, deployment).datum.status === "valid")
-      .sort((left, right) => compareIndexedUtxos(toIndexedReclaimUtxo(left, deployment), toIndexedReclaimUtxo(right, deployment)));
+      .sort((left, right) =>
+        compareIndexedUtxos(toIndexedReclaimUtxo(left, deployment), toIndexedReclaimUtxo(right, deployment)),
+      );
     if (eligible.length > requestedCap) {
       reductions.push(`reduced_to_batch_cap_${requestedCap}`);
     }
@@ -179,7 +184,10 @@ async function loadSafeWallet(
 
 async function loadSelectedReclaimUtxos(provider: Provider, selectedOutrefs: ClaimOutRef[]): Promise<UTxO[]> {
   if (!supportsOutRefLookup(provider)) {
-    throw new ClaimValidationError("provider_outref_lookup_unavailable", "Configured Cardano provider cannot query selected outrefs.");
+    throw new ClaimValidationError(
+      "provider_outref_lookup_unavailable",
+      "Configured Cardano provider cannot query selected outrefs.",
+    );
   }
   const selectedIds = new Set(selectedOutrefs.map(outRefToString));
   const utxos = (await provider.getUtxosByOutRef(outRefsForProvider(selectedOutrefs))).filter((utxo) =>
@@ -195,7 +203,10 @@ async function loadSelectedReclaimUtxos(provider: Provider, selectedOutrefs: Cla
 
 function reclaimDraftInputFromUtxo(utxo: UTxO, deployment: ReclaimDeployment): ClaimDraftInput {
   if (utxo.address !== deployment.reclaimBaseAddress) {
-    throw new ClaimValidationError("selected_outref_wrong_address", "Selected outref is not locked at the current ReclaimBase address.");
+    throw new ClaimValidationError(
+      "selected_outref_wrong_address",
+      "Selected outref is not locked at the current ReclaimBase address.",
+    );
   }
   if (!utxo.datum) {
     throw new ClaimValidationError("missing_inline_datum", "Selected reclaim UTxO is missing an inline datum.");
@@ -222,7 +233,10 @@ function assertBatchCap(value: unknown, policy: ClaimBatchPolicy): number {
     throw new ClaimValidationError("batch_cap_invalid", "Claim batch cap must be a positive integer.");
   }
   if (value > policy.hardCap) {
-    throw new ClaimValidationError("batch_cap_exceeded", `Claim batch cap cannot exceed this deployment's ${policy.hardCap} UTxO limit.`);
+    throw new ClaimValidationError(
+      "batch_cap_exceeded",
+      `Claim batch cap cannot exceed this deployment's ${policy.hardCap} UTxO limit.`,
+    );
   }
   return value;
 }

@@ -12,14 +12,24 @@ export async function waitForSafeDestinationOutput(options = {}) {
   const sleep = options.sleep ?? defaultSleep;
   const timeoutMs = options.timeoutMs ?? DEFAULT_PROVIDER_OUTPUT_TIMEOUT_MS;
   if (!provider || typeof provider.getUtxos !== "function") {
-    throw new WebAppClaimFlowContractError("provider_confirmation_unavailable", "A read-capable Preprod provider is required.");
+    throw new WebAppClaimFlowContractError(
+      "provider_confirmation_unavailable",
+      "A read-capable Preprod provider is required.",
+    );
   }
   if (!/^[0-9a-f]{64}$/u.test(transactionHash)) {
-    throw new WebAppClaimFlowContractError("provider_confirmation_failed", "The submitted transaction hash is invalid.");
+    throw new WebAppClaimFlowContractError(
+      "provider_confirmation_failed",
+      "The submitted transaction hash is invalid.",
+    );
   }
   const destinationOutputs = build?.review?.destinationOutputs;
   const destinationOutputStartIndex = build?.review?.destinationOutputStartIndex;
-  if (!Array.isArray(destinationOutputs) || destinationOutputs.length !== 1 || !Number.isSafeInteger(destinationOutputStartIndex)) {
+  if (
+    !Array.isArray(destinationOutputs) ||
+    destinationOutputs.length !== 1 ||
+    !Number.isSafeInteger(destinationOutputStartIndex)
+  ) {
     throw new WebAppClaimFlowContractError(
       "provider_confirmation_failed",
       "The reviewed build does not identify exactly one destination output index.",
@@ -27,7 +37,10 @@ export async function waitForSafeDestinationOutput(options = {}) {
   }
   const expected = destinationOutputs[0];
   if (expected.address !== safeAddress) {
-    throw new WebAppClaimFlowContractError("provider_confirmation_failed", "The reviewed destination does not match the safe Lace address.");
+    throw new WebAppClaimFlowContractError(
+      "provider_confirmation_failed",
+      "The reviewed destination does not match the safe Lace address.",
+    );
   }
 
   const deadline = Date.now() + timeoutMs;

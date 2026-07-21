@@ -8,10 +8,7 @@ import {
   pinLocalDeploymentManifest,
   resolveOpenPullRequest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
-import {
-  disposePageRoutes,
-  prepareLaceRoleBeforeNavigation,
-} from "./web-app-claim-flow-wasm-lace.mjs";
+import { disposePageRoutes, prepareLaceRoleBeforeNavigation } from "./web-app-claim-flow-wasm-lace.mjs";
 
 const commitSha = "a".repeat(40);
 
@@ -62,22 +59,24 @@ describe("local production PR claim flow", () => {
       pkHost: "proof-assets.reclaim-proof.com",
       ccsHost: "proof-assets-2m.reclaim-proof.com",
     });
-    expect(() => assertRemoteProofAssets({
-      proof: {
-        browser_proving: {
-          enabled: true,
-          pk_url: "http://127.0.0.1/ownership.pk",
-          ccs_url: manifest.proof.browser_proving.ccs_url,
+    expect(() =>
+      assertRemoteProofAssets({
+        proof: {
+          browser_proving: {
+            enabled: true,
+            pk_url: "http://127.0.0.1/ownership.pk",
+            ccs_url: manifest.proof.browser_proving.ccs_url,
+          },
         },
-      },
-    })).toThrowError(expect.objectContaining({ code: "local_remote_proof_assets_missing" }));
+      }),
+    ).toThrowError(expect.objectContaining({ code: "local_remote_proof_assets_missing" }));
   });
 
   it("pins the committed Vercel stable-pointer manifest over stale local aliases", () => {
     const env = pinLocalDeploymentManifest(
       {
         RECLAIM_DEPLOYMENT_MANIFEST: "/old/manifest.json",
-        RECLAIM_DEPLOYMENT_MANIFEST_JSON: "{\"stale\":true}",
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: '{"stale":true}',
         RECLAIM_MANIFEST_PATH: "/old/alias.json",
       },
       "/repo/apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
@@ -113,7 +112,9 @@ describe("local production PR claim flow", () => {
       ["disconnect", "http://127.0.0.1:3917/claim", { required: false }],
       ["switch", "compromised_user"],
     ]);
-    await expect(prepareLaceRoleBeforeNavigation({}, "compromised_user", "http://127.0.0.1:3917")).rejects.toMatchObject({
+    await expect(
+      prepareLaceRoleBeforeNavigation({}, "compromised_user", "http://127.0.0.1:3917"),
+    ).rejects.toMatchObject({
       code: "lace_role_preload_unavailable",
     });
   });
@@ -124,11 +125,13 @@ describe("local production PR claim flow", () => {
       unrouteAll: async (options) => calls.push(options),
     });
     expect(calls).toEqual([{ behavior: "ignoreErrors" }]);
-    await expect(disposePageRoutes({
-      unrouteAll: async () => {
-        throw new Error("page already closed");
-      },
-    })).resolves.toBeUndefined();
+    await expect(
+      disposePageRoutes({
+        unrouteAll: async () => {
+          throw new Error("page already closed");
+        },
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("requires a clean named branch with an existing open PR", () => {
@@ -139,9 +142,9 @@ describe("local production PR claim flow", () => {
       pr: { number: 14, state: "OPEN", headRefName: "colll78/feature" },
     };
     expect(assertLocalPrContext(valid)).toMatchObject({ prNumber: 14 });
-    expect(() => assertLocalPrContext({ ...valid, branch: "main", pr: { ...valid.pr, headRefName: "main" } })).toThrowError(
-      expect.objectContaining({ code: "local_pr_branch_invalid" }),
-    );
+    expect(() =>
+      assertLocalPrContext({ ...valid, branch: "main", pr: { ...valid.pr, headRefName: "main" } }),
+    ).toThrowError(expect.objectContaining({ code: "local_pr_branch_invalid" }));
     expect(() => assertLocalPrContext({ ...valid, status: " M changed.ts" })).toThrowError(
       expect.objectContaining({ code: "local_worktree_dirty" }),
     );

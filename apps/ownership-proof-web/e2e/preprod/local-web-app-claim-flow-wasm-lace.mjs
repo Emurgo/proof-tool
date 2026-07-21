@@ -47,13 +47,9 @@ export async function runLocalPrClaimFlow(options = {}) {
     }),
   );
 
-  const commonDir = (await capture("git", [
-    "-C",
-    repoRoot,
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-common-dir",
-  ])).trim();
+  const commonDir = (
+    await capture("git", ["-C", repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+  ).trim();
   const sharedRoot = path.dirname(commonDir);
   const localEnvFile = resolveInputFile(
     initialEnv[LOCAL_ENV_FILE_ENV],
@@ -82,21 +78,16 @@ export async function runLocalPrClaimFlow(options = {}) {
     prNumber: git.prNumber,
   });
   const defaultManifestPath = path.join(appDir, "public", "proof-assets", "reclaim-deployment.json");
-  const manifestPath = resolveInputFile(
-    flowEnv[LOCAL_MANIFEST_ENV],
-    [defaultManifestPath],
-    LOCAL_MANIFEST_ENV,
-  );
+  const manifestPath = resolveInputFile(flowEnv[LOCAL_MANIFEST_ENV], [defaultManifestPath], LOCAL_MANIFEST_ENV);
   const serverEnv = pinLocalDeploymentManifest(flowEnv, manifestPath);
   const runnerEnv = createLocalRunnerEnv(serverEnv);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const proofAssets = assertRemoteProofAssets(
-    manifest,
-    expectedProofAssetHosts(serverEnv),
-  );
+  const proofAssets = assertRemoteProofAssets(manifest, expectedProofAssetHosts(serverEnv));
 
   console.log(`Building the local production app for PR #${git.prNumber} at ${git.commitSha.slice(0, 12)}.`);
-  console.log(`Large proof assets remain remote at ${proofAssets.pkHost} and ${proofAssets.ccsHost}; bundled runtime assets use the production Next build.`);
+  console.log(
+    `Large proof assets remain remote at ${proofAssets.pkHost} and ${proofAssets.ccsHost}; bundled runtime assets use the production Next build.`,
+  );
   await runInherited("pnpm", ["build"], { cwd: appDir, env: serverEnv, spawn });
 
   const server = spawn("pnpm", ["start", "--hostname", DEFAULT_HOST, "--port", String(port)], {
@@ -234,9 +225,9 @@ async function readLocalPrContext({ capture, env, fetch, remote, repoRoot }) {
 }
 
 export function githubRepositoryFromRemote(remoteUrl) {
-  const match = String(remoteUrl ?? "").trim().match(
-    /^(?:git@github\.com:|https:\/\/github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?$/u,
-  );
+  const match = String(remoteUrl ?? "")
+    .trim()
+    .match(/^(?:git@github\.com:|https:\/\/github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?$/u);
   if (!match) {
     throw new LocalPrClaimFlowError(
       "local_github_remote_invalid",
@@ -248,7 +239,10 @@ export function githubRepositoryFromRemote(remoteUrl) {
 
 export async function resolveOpenPullRequest({ branch, env = process.env, fetch, repository }) {
   if (typeof fetch !== "function") {
-    throw new LocalPrClaimFlowError("local_pr_lookup_failed", "A fetch implementation is required to resolve the open PR.");
+    throw new LocalPrClaimFlowError(
+      "local_pr_lookup_failed",
+      "A fetch implementation is required to resolve the open PR.",
+    );
   }
   const head = `${repository.owner}:${branch}`;
   const url = new URL(`https://api.github.com/repos/${repository.owner}/${repository.repo}/pulls`);
@@ -309,7 +303,10 @@ function requireRemoteAsset(value, field, expectedHosts) {
   try {
     url = new URL(value);
   } catch {
-    throw new LocalPrClaimFlowError("local_remote_proof_assets_missing", `browser_proving.${field} must be an HTTPS URL.`);
+    throw new LocalPrClaimFlowError(
+      "local_remote_proof_assets_missing",
+      `browser_proving.${field} must be an HTTPS URL.`,
+    );
   }
   if (url.protocol !== "https:" || !expectedHosts.includes(url.hostname) || url.username || url.password) {
     throw new LocalPrClaimFlowError(
@@ -325,13 +322,19 @@ function expectedProofAssetHosts(env) {
   if (!configured) {
     return [...DEFAULT_PROOF_ASSET_HOSTS];
   }
-  return configured.split(",").map((value) => value.trim()).filter(Boolean);
+  return configured
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function parsePort(value) {
   const port = Number(value);
   if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
-    throw new LocalPrClaimFlowError("local_port_invalid", "RECLAIM_E2E_LOCAL_PORT must be a TCP port between 1 and 65535.");
+    throw new LocalPrClaimFlowError(
+      "local_port_invalid",
+      "RECLAIM_E2E_LOCAL_PORT must be a TCP port between 1 and 65535.",
+    );
   }
   return port;
 }
@@ -353,10 +356,12 @@ function runInherited(command, args, { cwd, env, spawn }) {
         resolve();
         return;
       }
-      reject(new LocalPrClaimFlowError(
-        "local_command_failed",
-        `${command} ${args.join(" ")} failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`,
-      ));
+      reject(
+        new LocalPrClaimFlowError(
+          "local_command_failed",
+          `${command} ${args.join(" ")} failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`,
+        ),
+      );
     });
   });
 }

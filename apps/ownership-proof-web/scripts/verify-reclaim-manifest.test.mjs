@@ -17,10 +17,8 @@ const publicManifestPath = path.join(
 describe("verify-reclaim-manifest V2 coherence", () => {
   it("accepts matched statement-bound V2 metadata", () => {
     const manifest = statementBoundV2Manifest();
-    manifest.reclaim_global.proof_slot_encoding =
-      "full-proof-plus-public-input-digest-v2";
-    manifest.reclaim_global.batch_transcript_vk_hash =
-      manifest.proof.cardano_vk_blake2b256;
+    manifest.reclaim_global.proof_slot_encoding = "full-proof-plus-public-input-digest-v2";
+    manifest.reclaim_global.batch_transcript_vk_hash = manifest.proof.cardano_vk_blake2b256;
 
     expect(validateReclaimManifest(manifest)).toEqual([]);
     expect(manifest.reclaim_global.proof_slot_encoding).toBe("full-proof-plus-public-input-digest-v2");
@@ -28,10 +26,8 @@ describe("verify-reclaim-manifest V2 coherence", () => {
 
   it("rejects a mismatched V2 transcript verifier-key hash", () => {
     const manifest = publicManifest();
-    manifest.reclaim_global.proof_slot_encoding =
-      "full-proof-plus-public-input-digest-v2";
-    manifest.reclaim_global.batch_transcript_vk_hash =
-      "blake2b256:" + "00".repeat(32);
+    manifest.reclaim_global.proof_slot_encoding = "full-proof-plus-public-input-digest-v2";
+    manifest.reclaim_global.batch_transcript_vk_hash = "blake2b256:" + "00".repeat(32);
 
     expect(errorFields(manifest)).toContain("reclaim_global.batch_transcript_vk_hash");
   });
@@ -90,10 +86,8 @@ function publicManifest() {
 
 function statementBoundV2Manifest() {
   const manifest = publicManifest();
-  manifest.reclaim_global.proof_slot_encoding =
-    "full-proof-plus-public-input-digest-v2";
-  manifest.reclaim_global.batch_transcript_vk_hash =
-    manifest.proof.cardano_vk_blake2b256;
+  manifest.reclaim_global.proof_slot_encoding = "full-proof-plus-public-input-digest-v2";
+  manifest.reclaim_global.batch_transcript_vk_hash = manifest.proof.cardano_vk_blake2b256;
   manifest.batching = {
     default_utxo_count: 6,
     optimization_utxo_count: 6,

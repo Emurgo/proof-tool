@@ -1,6 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { bech32 } from "bech32";
-import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaimFlow, selectClaimBatchRows } from "./ClaimFlow";
 import { acknowledgePairing, broadcastPairing, subscribeToPairing } from "../lib/proving/helper-pairing-relay";
@@ -78,7 +77,10 @@ describe("ClaimFlow", () => {
   });
 
   it("offers the explicit V2 seven-slot opt-in and drafts seven duplicate credentials without a uniqueness gate", async () => {
-    const selectedOutrefs = Array.from({ length: 7 }, (_, index) => `${(index + 1).toString(16).padStart(64, "0")}#${index}`);
+    const selectedOutrefs = Array.from(
+      { length: 7 },
+      (_, index) => `${(index + 1).toString(16).padStart(64, "0")}#${index}`,
+    );
     const draft = claimDraft(selectedOutrefs);
     const draftRequests: Array<Record<string, unknown>> = [];
     installWallets({
@@ -198,7 +200,9 @@ describe("ClaimFlow", () => {
     expect(recoveryInputs.map((input) => input.value)).toEqual(recoveryPhrase24.split(" "));
     // No clipboard API is available here, so the user is told to clear it.
     await waitFor(() =>
-      expect(screen.getByText(/Pasted 24 words\. Clear your clipboard now — copy anything else to overwrite it\./i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Pasted 24 words\. Clear your clipboard now — copy anything else to overwrite it\./i),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -240,7 +244,10 @@ describe("ClaimFlow", () => {
     fireEvent.click(within(localHelperTile as HTMLElement).getByRole("button", { name: "Choose method" }));
 
     const methodDialog = await screen.findByRole("dialog", { name: "Choose how to create proofs" });
-    expect(within(methodDialog).getByRole("radio", { name: /Prove in this browser/i })).toHaveAttribute("aria-checked", "true");
+    expect(within(methodDialog).getByRole("radio", { name: /Prove in this browser/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     expect(within(methodDialog).queryByText("Experimental")).not.toBeInTheDocument();
     expect(within(methodDialog).getByText(/Windows, macOS, or Linux/i)).toBeInTheDocument();
     expect(within(methodDialog).getByText(/About 2 minutes per proof/i)).toBeInTheDocument();
@@ -261,8 +268,12 @@ describe("ClaimFlow", () => {
       "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.2/proof-helper_0.2.2_linux_x86_64.AppImage",
     );
     expect(within(dialog).getByText("Download AppImage")).toBeInTheDocument();
-    expect(within(dialog).getByText("263592681101d7edaeed071d02758ed570a6187072939479f9d3ead763b9745c")).toBeInTheDocument();
-    expect(within(dialog).getByText("sha256sum -c proof-helper_0.2.2_linux_x86_64.AppImage.sha256")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("263592681101d7edaeed071d02758ed570a6187072939479f9d3ead763b9745c"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("sha256sum -c proof-helper_0.2.2_linux_x86_64.AppImage.sha256"),
+    ).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "Download checksum" })).toHaveAttribute(
       "href",
       "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.2/proof-helper_0.2.2_linux_x86_64.AppImage.sha256",
@@ -289,7 +300,10 @@ describe("ClaimFlow", () => {
 
     // The readiness section renders and Continue stays disabled while proving
     // is not verified (fixture mode never enables the descriptor).
-    expect(within(methodDialog).getByRole("radio", { name: /Prove in this browser/i })).toHaveAttribute("aria-checked", "true");
+    expect(within(methodDialog).getByRole("radio", { name: /Prove in this browser/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     expect(within(methodDialog).queryByText("Experimental")).not.toBeInTheDocument();
     expect(within(methodDialog).getByText(/Cross-origin isolated/i)).toBeInTheDocument();
     const continueButton = within(methodDialog).getByRole("button", { name: /Continue/i });
@@ -317,7 +331,9 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Verify this recovery service" })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Verify this recovery service" })).toBeInTheDocument(),
+    );
     expect(screen.getByRole("link", { name: /view commit on github/i })).toHaveAttribute(
       "href",
       `https://github.com/Anastasia-Labs/proof-tool/commit/${"f".repeat(40)}`,
@@ -348,9 +364,9 @@ describe("ClaimFlow", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getAllByRole("button").some(
-        (button) => button.querySelector("strong")?.textContent?.includes("Lace"),
-      )).toBe(true);
+      expect(
+        screen.getAllByRole("button").some((button) => button.querySelector("strong")?.textContent?.includes("Lace")),
+      ).toBe(true);
     });
     expect(screen.queryByRole("button", { name: /No wallet found/i })).not.toBeInTheDocument();
   });
@@ -1038,7 +1054,10 @@ describe("ClaimFlow", () => {
   it("blocks safe wallets that cannot sign", async () => {
     installWallets({
       impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
-      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }, { omitSignTx: true }),
+      safe: walletApi(
+        { getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] },
+        { omitSignTx: true },
+      ),
     });
     const fetch = claimFlowFetch();
     vi.stubGlobal("fetch", fetch);
@@ -1092,13 +1111,19 @@ describe("ClaimFlow", () => {
     const safeEnable = vi
       .fn()
       .mockResolvedValueOnce(walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [walletAddressHex] }))
-      .mockResolvedValueOnce(walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }));
+      .mockResolvedValueOnce(
+        walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+      );
     Object.defineProperty(window, "cardano", {
       configurable: true,
       value: {
         impacted: {
           name: "Impacted",
-          enable: vi.fn().mockResolvedValue(walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] })),
+          enable: vi
+            .fn()
+            .mockResolvedValue(
+              walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+            ),
         },
         safe: {
           name: "Safe",
@@ -1128,7 +1153,11 @@ describe("ClaimFlow", () => {
 
   it("blocks safe wallet overlap through reward-address stake credentials", async () => {
     installWallets({
-      impacted: walletApi({ getChangeAddress: usedWalletAddressHex, getUsedAddresses: [], getRewardAddresses: [rewardAddressHex] }),
+      impacted: walletApi({
+        getChangeAddress: usedWalletAddressHex,
+        getUsedAddresses: [],
+        getRewardAddresses: [rewardAddressHex],
+      }),
       safe: walletApi({
         getChangeAddress: safeWalletAddressHex,
         getUsedAddresses: [safeWalletAddressHex],
@@ -1208,12 +1237,16 @@ describe("ClaimFlow", () => {
 
     expect(await screen.findByRole("heading", { name: "Claim funds" })).toBeInTheDocument();
     expect(screen.getByText(safeWalletAddressBech32)).toBeInTheDocument();
-    expect(screen.getByText(/Confirm this matches the receive address shown in your safe wallet before signing/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Confirm this matches the receive address shown in your safe wallet before signing/i),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Copy Safe wallet (destination)" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(safeWalletAddressBech32));
-    expect(await screen.findByRole("button", { name: /Copy Safe wallet \(destination\) — copied/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Copy Safe wallet \(destination\) — copied/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows build progress immediately and suppresses duplicate build requests", async () => {
@@ -1309,7 +1342,9 @@ describe("ClaimFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
 
     await waitFor(() =>
-      expect(fetch.mock.calls.filter(([url]) => String(url).startsWith("/claim-api/progress")).length).toBeGreaterThanOrEqual(2),
+      expect(
+        fetch.mock.calls.filter(([url]) => String(url).startsWith("/claim-api/progress")).length,
+      ).toBeGreaterThanOrEqual(2),
     );
     await waitFor(() => expect(screen.getByRole("heading", { name: "Claim review" })).toBeInTheDocument());
     expect(fetch.mock.calls.filter(([url]) => String(url) === "/claim-api/draft")).toHaveLength(0);
@@ -1479,7 +1514,7 @@ describe("ClaimFlow", () => {
     const base = claimFlowFetch({ draft });
     const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       if (String(url) === "http://127.0.0.1:49152/prove-destination") {
-        const body = init?.body ? JSON.parse(String(init.body)) as { preflight_only?: boolean } : {};
+        const body = init?.body ? (JSON.parse(String(init.body)) as { preflight_only?: boolean }) : {};
         if (body.preflight_only) {
           return jsonResponse({ ok: true, capability: "prove-destination-preflight-v1" });
         }
@@ -1533,16 +1568,18 @@ describe("ClaimFlow", () => {
 
     const checkAgain = await screen.findByRole("button", { name: "Check helper again" });
     expect(screen.getByRole("button", { name: "Generate proofs" })).toBeDisabled();
-    const statusCallsBefore = fetch.mock.calls.filter(([url]) => String(url) === "http://127.0.0.1:49152/status").length;
+    const statusCallsBefore = fetch.mock.calls.filter(
+      ([url]) => String(url) === "http://127.0.0.1:49152/status",
+    ).length;
     expect(statusCallsBefore).toBeGreaterThanOrEqual(1);
 
     helperKeyReady = true;
     fireEvent.click(checkAgain);
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Generate proofs" })).toBeEnabled());
-    expect(
-      fetch.mock.calls.filter(([url]) => String(url) === "http://127.0.0.1:49152/status").length,
-    ).toBeGreaterThan(statusCallsBefore);
+    expect(fetch.mock.calls.filter(([url]) => String(url) === "http://127.0.0.1:49152/status").length).toBeGreaterThan(
+      statusCallsBefore,
+    );
   });
 
   it("presents an indexer failure as a lookup problem with a retry, not as no matching funds", async () => {
@@ -1714,7 +1751,9 @@ describe("ClaimFlow", () => {
 
     fireEvent.keyDown(methodDialog, { key: "Escape" });
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose how to create proofs" })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Choose how to create proofs" })).not.toBeInTheDocument(),
+    );
     // C36: focus returns to the control that opened the dialog.
     expect(opener).toHaveFocus();
   });
@@ -1991,7 +2030,9 @@ async function findSafeWalletOption() {
       screen.getAllByRole("button").some((button) => button.querySelector("strong")?.textContent?.trim() === "Safe"),
     ).toBe(true);
   });
-  const button = screen.getAllByRole("button").find((candidate) => candidate.querySelector("strong")?.textContent?.trim() === "Safe");
+  const button = screen
+    .getAllByRole("button")
+    .find((candidate) => candidate.querySelector("strong")?.textContent?.trim() === "Safe");
   if (!button) {
     throw new Error("Safe wallet option not found.");
   }
@@ -2040,13 +2081,7 @@ function writeResumeSnapshotForTest({
   );
 }
 
-function installWallets({
-  impacted,
-  safe,
-}: {
-  impacted: Record<string, unknown>;
-  safe: Record<string, unknown>;
-}) {
+function installWallets({ impacted, safe }: { impacted: Record<string, unknown>; safe: Record<string, unknown> }) {
   Object.defineProperty(window, "cardano", {
     configurable: true,
     value: {
@@ -2110,13 +2145,15 @@ function walletApi(
   return api;
 }
 
-function claimFlowFetch(options: {
-  draft?: ReturnType<typeof claimDraft>;
-  helperStatus?: Record<string, unknown>;
-  destinationProofResponse?: ReturnType<typeof destinationProofResponse>;
-  reclaimUtxosResponse?: ReturnType<typeof reclaimUtxos>;
-  legacyDesktopPreflight?: boolean;
-} = {}) {
+function claimFlowFetch(
+  options: {
+    draft?: ReturnType<typeof claimDraft>;
+    helperStatus?: Record<string, unknown>;
+    destinationProofResponse?: ReturnType<typeof destinationProofResponse>;
+    reclaimUtxosResponse?: ReturnType<typeof reclaimUtxos>;
+    legacyDesktopPreflight?: boolean;
+  } = {},
+) {
   const selectedOutrefs = options.draft?.orderedInputs.map((input) => input.outRefId) ?? [`${"a".repeat(64)}#0`];
   const draft = options.draft ?? claimDraft(selectedOutrefs);
   return vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -2134,13 +2171,16 @@ function claimFlowFetch(options: {
       return jsonResponse(options.helperStatus ?? helperStatus());
     }
     if (urlText === "http://127.0.0.1:49152/prove-destination") {
-      const body = init?.body ? JSON.parse(String(init.body)) as { preflight_only?: boolean } : {};
+      const body = init?.body ? (JSON.parse(String(init.body)) as { preflight_only?: boolean }) : {};
       if (body.preflight_only) {
         if (options.legacyDesktopPreflight) {
-          return jsonResponse({
-            code: "invalid_request",
-            error: "The destination proof request was not valid JSON.",
-          }, { status: 400 });
+          return jsonResponse(
+            {
+              code: "invalid_request",
+              error: "The destination proof request was not valid JSON.",
+            },
+            { status: 400 },
+          );
         }
         return jsonResponse({ ok: true, capability: "prove-destination-preflight-v1" });
       }
@@ -2356,7 +2396,10 @@ function helperStatus(profileOverrides: Record<string, unknown> = {}) {
   };
 }
 
-function destinationProofResponse(draft: ReturnType<typeof claimDraft>, artifactOverrides: Record<string, unknown> = {}) {
+function destinationProofResponse(
+  draft: ReturnType<typeof claimDraft>,
+  artifactOverrides: Record<string, unknown> = {},
+) {
   return {
     profile: draft.proofProfile,
     artifacts: draft.proofRequests.map((request) => ({

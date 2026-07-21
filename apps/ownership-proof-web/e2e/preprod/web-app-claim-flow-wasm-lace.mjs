@@ -83,14 +83,27 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
   let recoveryPhraseEgressGuard;
   try {
     if (typeof fetchFn !== "function") {
-      throw new WebAppClaimFlowContractError("fetch_unavailable", "fetch is required for Preview and provider verification.");
+      throw new WebAppClaimFlowContractError(
+        "fetch_unavailable",
+        "fetch is required for Preview and provider verification.",
+      );
     }
     const headers = browserContextHeaders(config);
-    const provenanceResponse = await fetchJson(fetchFn, new URL(BUILD_PROVENANCE_PATH, config.baseUrl), headers, "preview_provenance_unavailable");
+    const provenanceResponse = await fetchJson(
+      fetchFn,
+      new URL(BUILD_PROVENANCE_PATH, config.baseUrl),
+      headers,
+      "preview_provenance_unavailable",
+    );
     const provenance = validatePreviewProvenance(provenanceResponse, config);
     run.target.provenance = redactedProvenanceArtifact(provenance);
 
-    const claimDeploymentResponse = await fetchJson(fetchFn, new URL("/claim-api/deployment", config.baseUrl), headers, "preprod_manifest_incoherent");
+    const claimDeploymentResponse = await fetchJson(
+      fetchFn,
+      new URL("/claim-api/deployment", config.baseUrl),
+      headers,
+      "preprod_manifest_incoherent",
+    );
     const claimDeployment = validateBrowserWasmClaimDeployment(claimDeploymentResponse);
     run.target.claimDeployment = claimDeployment;
     persistRun(runPath, run);
@@ -103,9 +116,9 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
       );
     }
     if (
-      typeof walletDriver.installSigningObserver !== "function"
-      || typeof walletDriver.assertSigningObserverReady !== "function"
-      || typeof walletDriver.assertPendingSigningTransaction !== "function"
+      typeof walletDriver.installSigningObserver !== "function" ||
+      typeof walletDriver.assertSigningObserverReady !== "function" ||
+      typeof walletDriver.assertPendingSigningTransaction !== "function"
     ) {
       throw new WebAppClaimFlowContractError(
         "lace_signing_observer_unavailable",
@@ -114,16 +127,29 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     }
     const compromised = requireRole(walletDriver, COMPROMISED_ROLE);
     const safe = requireRole(walletDriver, SAFE_ROLE);
-    if (!compromised.paymentCredential || !safe.paymentCredential || compromised.paymentCredential === safe.paymentCredential) {
-      throw new WebAppClaimFlowContractError("lace_role_identity_mismatch", "Compromised and safe Lace roles must have distinct payment credentials.");
+    if (
+      !compromised.paymentCredential ||
+      !safe.paymentCredential ||
+      compromised.paymentCredential === safe.paymentCredential
+    ) {
+      throw new WebAppClaimFlowContractError(
+        "lace_role_identity_mismatch",
+        "Compromised and safe Lace roles must have distinct payment credentials.",
+      );
     }
     if (compromised.canSign === true || safe.canSign !== true) {
-      throw new WebAppClaimFlowContractError("lace_role_signing_policy_invalid", "Only the safe Lace role may sign the claim transaction.");
+      throw new WebAppClaimFlowContractError(
+        "lace_role_signing_policy_invalid",
+        "Only the safe Lace role may sign the claim transaction.",
+      );
     }
     const compromisedMnemonic = await walletDriver.recoveryPhraseForBrowserUi(COMPROMISED_ROLE);
     const confirmationProvider = await providerLoader(env);
     if (!confirmationProvider || typeof confirmationProvider.getUtxos !== "function") {
-      throw new WebAppClaimFlowContractError("provider_confirmation_unavailable", "A read-capable Preprod provider is required.");
+      throw new WebAppClaimFlowContractError(
+        "provider_confirmation_unavailable",
+        "A read-capable Preprod provider is required.",
+      );
     }
 
     let expectedOutref = config.expectedOutref;
@@ -147,10 +173,19 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
       };
     }
     if (!expectedOutref) {
-      throw new WebAppClaimFlowContractError("fixture_outref_missing", "The claim journey does not have a prepared outref.");
+      throw new WebAppClaimFlowContractError(
+        "fixture_outref_missing",
+        "The claim journey does not have a prepared outref.",
+      );
     }
     run.journey.preparedOutref = expectedOutref;
-    const fixture = await verifyExactPreparedFixture(fetchFn, config, headers, compromised.paymentCredential, expectedOutref);
+    const fixture = await verifyExactPreparedFixture(
+      fetchFn,
+      config,
+      headers,
+      compromised.paymentCredential,
+      expectedOutref,
+    );
     run.journey.fixture = fixture;
     persistRun(runPath, run);
 
@@ -227,7 +262,9 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     await page.getByRole("button", { name: "Choose method", exact: true }).click();
     const methodDialog = page.getByRole("dialog", { name: "Choose how to create proofs" });
     await methodDialog.getByRole("radio", { name: /Prove in this browser/iu }).click();
-    await methodDialog.getByText("This browser can generate proofs", { exact: true }).waitFor({ timeout: PROOF_TIMEOUT_MS });
+    await methodDialog
+      .getByText("This browser can generate proofs", { exact: true })
+      .waitFor({ timeout: PROOF_TIMEOUT_MS });
     await capture("11-proof-method.png", page, "proof-method-browser-ready");
     await methodDialog.getByRole("button", { name: "Continue", exact: true }).click();
 
@@ -239,7 +276,9 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
       await page.getByLabel(`Recovery word ${index + 1}`, { exact: true }).fill(word);
     }
     await page.getByRole("button", { name: "Generate proofs", exact: true }).click();
-    await page.getByText("Proof generation is running in this browser", { exact: false }).waitFor({ timeout: PROOF_TIMEOUT_MS });
+    await page
+      .getByText("Proof generation is running in this browser", { exact: false })
+      .waitFor({ timeout: PROOF_TIMEOUT_MS });
     await assertRecoveryInputsCleared(page);
     recoveryPhraseEgressGuard.assertClear();
     await capture("13-proofs-generating.png", page, "create-proofs-generating");
@@ -332,7 +371,11 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     persistRun(runPath, run);
     throw reportedError;
   } finally {
-    writeFileSync(consolePath, consoleEntries.map((entry) => JSON.stringify(entry)).join("\n") + (consoleEntries.length ? "\n" : ""), "utf8");
+    writeFileSync(
+      consolePath,
+      consoleEntries.map((entry) => JSON.stringify(entry)).join("\n") + (consoleEntries.length ? "\n" : ""),
+      "utf8",
+    );
     writeFileSync(networkPath, `${JSON.stringify(networkEntries, null, 2)}\n`, "utf8");
     await disposePageRoutes(page);
     await context?.close().catch(() => undefined);
@@ -466,7 +509,10 @@ async function verifyExactPreparedFixture(fetchFn, config, headers, paymentCrede
   );
   const entry = progress?.outrefs?.find((item) => item.outRefId === expectedOutref);
   if (!progress?.providerAvailable || entry?.state !== "unspent") {
-    throw new WebAppClaimFlowContractError("fixture_outref_missing_or_spent", "The prepared claim outref is not provider-visible and unspent.");
+    throw new WebAppClaimFlowContractError(
+      "fixture_outref_missing_or_spent",
+      "The prepared claim outref is not provider-visible and unspent.",
+    );
   }
 
   const matches = [];
@@ -479,7 +525,10 @@ async function verifyExactPreparedFixture(fetchFn, config, headers, paymentCrede
     }
     const page = await fetchJson(fetchFn, url, headers, "fixture_outref_missing_or_spent");
     if (!page?.available || !Array.isArray(page.utxos)) {
-      throw new WebAppClaimFlowContractError("fixture_outref_missing_or_spent", "The provider-backed reclaim index is unavailable.");
+      throw new WebAppClaimFlowContractError(
+        "fixture_outref_missing_or_spent",
+        "The provider-backed reclaim index is unavailable.",
+      );
     }
     matches.push(
       ...page.utxos.filter(
@@ -515,21 +564,32 @@ async function assertExpectedOutrefVisible(page, outRef) {
   const abbreviated = `${txHash.slice(0, 6)}...${txHash.slice(-6)}`;
   const row = page.getByRole("row").filter({ hasText: abbreviated }).filter({ hasText: outputIndex });
   if ((await row.count()) !== 1) {
-    throw new WebAppClaimFlowContractError("prepared_claim_not_discovered", "The available-claims table did not show the exact prepared outref.");
+    throw new WebAppClaimFlowContractError(
+      "prepared_claim_not_discovered",
+      "The available-claims table did not show the exact prepared outref.",
+    );
   }
 }
 
 async function waitForSpentConfirmation(fetchFn, config, headers, expectedOutref, sleepFn = sleep) {
   const deadline = Date.now() + CONFIRMATION_TIMEOUT_MS;
   while (Date.now() <= deadline) {
-    const progress = await fetchJson(fetchFn, progressUrl(config.baseUrl, expectedOutref), headers, "provider_confirmation_failed");
+    const progress = await fetchJson(
+      fetchFn,
+      progressUrl(config.baseUrl, expectedOutref),
+      headers,
+      "provider_confirmation_failed",
+    );
     const entry = progress?.outrefs?.find((item) => item.outRefId === expectedOutref);
     if (progress?.providerAvailable && (entry?.state === "spent_or_unknown" || entry?.state === "confirmed_spent")) {
       return entry;
     }
     await sleepFn(CONFIRMATION_POLL_MS);
   }
-  throw new WebAppClaimFlowContractError("provider_confirmation_timeout", "Timed out waiting for the prepared outref to become provider-visible as spent.");
+  throw new WebAppClaimFlowContractError(
+    "provider_confirmation_timeout",
+    "Timed out waiting for the prepared outref to become provider-visible as spent.",
+  );
 }
 
 async function createResponseBarrier(page, pathname) {
@@ -585,7 +645,11 @@ function observeJsonResponse(page, pathname) {
       if (queue.length > 0) {
         return queue.shift();
       }
-      return withTimeout(new Promise((resolve) => waiters.push(resolve)), timeoutMs, `Timed out waiting for ${pathname} response.`);
+      return withTimeout(
+        new Promise((resolve) => waiters.push(resolve)),
+        timeoutMs,
+        `Timed out waiting for ${pathname} response.`,
+      );
     },
   };
 }
@@ -612,7 +676,12 @@ function installObservation(page, consoleEntries, networkEntries, env) {
       return;
     }
     const url = new URL(response.url());
-    networkEntries.push({ method: response.request().method(), origin: url.origin, path: url.pathname, status: response.status() });
+    networkEntries.push({
+      method: response.request().method(),
+      origin: url.origin,
+      path: url.pathname,
+      status: response.status(),
+    });
   });
 }
 
@@ -620,7 +689,10 @@ async function assertRecoveryInputsCleared(page) {
   const inputs = page.locator('[data-claim-recovery-word="true"]');
   for (let index = 0; index < (await inputs.count()); index += 1) {
     if ((await inputs.nth(index).inputValue()) !== "") {
-      throw new WebAppClaimFlowContractError("recovery_phrase_not_cleared", "Recovery phrase inputs remained populated after proof generation started.");
+      throw new WebAppClaimFlowContractError(
+        "recovery_phrase_not_cleared",
+        "Recovery phrase inputs remained populated after proof generation started.",
+      );
     }
   }
 }
@@ -634,7 +706,10 @@ async function fetchJson(fetchFn, url, headers, code) {
   try {
     response = await fetchFn(url, { headers });
   } catch (error) {
-    throw new WebAppClaimFlowContractError(code, `Could not fetch ${url.pathname}: ${error?.message ?? "request failed"}.`);
+    throw new WebAppClaimFlowContractError(
+      code,
+      `Could not fetch ${url.pathname}: ${error?.message ?? "request failed"}.`,
+    );
   }
   if (!response || response.status < 200 || response.status >= 300) {
     throw new WebAppClaimFlowContractError(code, `${url.pathname} returned HTTP ${response?.status ?? "unknown"}.`);
@@ -655,7 +730,10 @@ function progressUrl(baseUrl, outRef) {
 function requireRole(walletDriver, role) {
   const state = walletDriver.roleState(role);
   if (!state) {
-    throw new WebAppClaimFlowContractError("lace_role_identity_mismatch", `Dedicated Lace profile does not expose ${role}.`);
+    throw new WebAppClaimFlowContractError(
+      "lace_role_identity_mismatch",
+      `Dedicated Lace profile does not expose ${role}.`,
+    );
   }
   return state;
 }
@@ -670,7 +748,9 @@ function sanitizedPageUrl(value) {
 }
 
 function sanitizeText(value, env) {
-  let text = String(value ?? "").replace(/\s+/gu, " ").slice(0, 600);
+  let text = String(value ?? "")
+    .replace(/\s+/gu, " ")
+    .slice(0, 600);
   for (const [key, secret] of Object.entries(env)) {
     if (!/(MNEMONIC|SEED|PHRASE|XPRV|PRIVATE|SECRET|TOKEN|PASSWORD)/u.test(key)) {
       continue;
