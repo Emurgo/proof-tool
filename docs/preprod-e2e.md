@@ -242,6 +242,12 @@ captures the exact app-origin connection, disconnects it, switches to
 missing approval dialog is a failure, so the runner cannot silently reuse the
 impacted account.
 
+The provider-backed scan must contain the exact prepared outref. The lane then
+isolates that outref in the browser response before drafting so a long-lived
+Lace test profile cannot accidentally include and spend unrelated, still-valid
+test claims. Transaction review and submission must still contain exactly that
+prepared input.
+
 The app also refreshes wallet discovery on the Cardano initialization event,
 focus or visibility changes, and a bounded ten-second fallback poll to handle
 slightly delayed extension injection.

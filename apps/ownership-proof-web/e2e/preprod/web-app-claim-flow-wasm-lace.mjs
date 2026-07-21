@@ -224,7 +224,9 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     await expectHeading(page, "Connect impacted wallet");
     await capture("02-impacted-wallet.png", page, "impacted-wallet");
     await walletDriver.connectRole(page, COMPROMISED_ROLE, "claim-wallet-option");
-    const scanBarrier = await createResponseBarrier(page, "/claim-api/reclaim-utxos");
+    const scanBarrier = await createResponseBarrier(page, "/claim-api/reclaim-utxos", {
+      transformJson: (payload) => isolatePreparedClaimResponse(payload, expectedOutref),
+    });
     await page.getByRole("button", { name: "Connect impacted wallet", exact: true }).click();
     await walletDriver.approveDappConnection(COMPROMISED_ROLE, {
       beforeApprove: (extensionPage) => capture("03-lace-impacted-connect.png", extensionPage, "lace-impacted-connect"),
@@ -571,6 +573,42 @@ async function assertExpectedOutrefVisible(page, outRef) {
   }
 }
 
+export function isolatePreparedClaimResponse(payload, expectedOutref) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    payload.available !== true ||
+    !payload.page ||
+    typeof payload.page !== "object" ||
+    !Array.isArray(payload.utxos)
+  ) {
+    throw new WebAppClaimFlowContractError(
+      "prepared_claim_index_response_invalid",
+      "The prepared-claim scan did not return an available reclaim UTxO page.",
+    );
+  }
+  const normalizedOutref = expectedOutref.toLowerCase();
+  const matches = payload.utxos.filter(
+    (utxo) => typeof utxo?.outRefId === "string" && utxo.outRefId.toLowerCase() === normalizedOutref,
+  );
+  if (matches.length !== 1) {
+    throw new WebAppClaimFlowContractError(
+      "prepared_claim_not_discovered",
+      "The provider response did not contain the exact prepared outref once.",
+    );
+  }
+  return {
+    ...payload,
+    page: {
+      ...payload.page,
+      cursor: null,
+      nextCursor: null,
+      total: 1,
+    },
+    utxos: matches,
+  };
+}
+
 async function waitForSpentConfirmation(fetchFn, config, headers, expectedOutref, sleepFn = sleep) {
   const deadline = Date.now() + CONFIRMATION_TIMEOUT_MS;
   while (Date.now() <= deadline) {
@@ -592,7 +630,7 @@ async function waitForSpentConfirmation(fetchFn, config, headers, expectedOutref
   );
 }
 
-async function createResponseBarrier(page, pathname) {
+async function createResponseBarrier(page, pathname, options = {}) {
   let interceptedResolve;
   let releaseResolve;
   const intercepted = new Promise((resolve) => {
@@ -609,9 +647,12 @@ async function createResponseBarrier(page, pathname) {
     }
     used = true;
     const response = await route.fetch();
+    const fulfillment = options.transformJson
+      ? { response, json: options.transformJson(await response.json()) }
+      : { response };
     interceptedResolve();
     await released;
-    await route.fulfill({ response });
+    await route.fulfill(fulfillment);
     await page.unroute(`**${pathname}*`, handler).catch(() => undefined);
   };
   await page.route(`**${pathname}*`, handler);
