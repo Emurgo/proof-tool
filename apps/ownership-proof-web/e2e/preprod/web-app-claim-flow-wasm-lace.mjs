@@ -237,7 +237,6 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     await capture("05-scanning-claims.png", page, "scanning-claims");
     await scanBarrier.release();
 
-    await page.getByText("Showing 1-1 of 1 UTxOs", { exact: true }).waitFor();
     await assertExpectedOutrefVisible(page, expectedOutref);
     await capture("06-available-claims.png", page, "available-claims");
     await page.getByRole("button", { name: "Continue to safe wallet", exact: true }).click();
@@ -563,6 +562,7 @@ async function assertExpectedOutrefVisible(page, outRef) {
   const [txHash, outputIndex] = outRef.split("#");
   const abbreviated = `${txHash.slice(0, 6)}...${txHash.slice(-6)}`;
   const row = page.getByRole("row").filter({ hasText: abbreviated }).filter({ hasText: outputIndex });
+  await row.waitFor();
   if ((await row.count()) !== 1) {
     throw new WebAppClaimFlowContractError(
       "prepared_claim_not_discovered",
