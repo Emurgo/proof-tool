@@ -451,8 +451,7 @@ describe("proveDestinationInBrowser", () => {
     }));
     const worker = new FakeProverWorker({
       init: (m) => [{ id: m.id as string, type: "ready" }],
-      preflight: (m) =>
-        readyPreflight().map((response) => ({ ...response, id: m.id as string })),
+      preflight: (m) => readyPreflight().map((response) => ({ ...response, id: m.id as string })),
       prove: (m) => [
         {
           id: m.id as string,
@@ -471,9 +470,7 @@ describe("proveDestinationInBrowser", () => {
       { createWorker: () => worker },
     );
 
-    expect(worker.seen.filter((message) => message.type === "discover")).toHaveLength(
-      0,
-    );
+    expect(worker.seen.filter((message) => message.type === "discover")).toHaveLength(0);
     const proveMessages = worker.seen.filter((message) => message.type === "prove");
     expect(proveMessages).toHaveLength(2);
     for (const [index, message] of proveMessages.entries()) {
@@ -484,6 +481,45 @@ describe("proveDestinationInBrowser", () => {
         index: 7 + index,
       });
     }
+  });
+
+  it("discovers only requests that do not supply an explicit path", async () => {
+    const draft = draftWith(2);
+    draft.proofRequests[0] = {
+      ...draft.proofRequests[0],
+      path: { account: 0, role: 0, index: 5001 },
+    };
+    const worker = new FakeProverWorker({
+      init: (m) => [{ id: m.id as string, type: "ready" }],
+      preflight: (m) => readyPreflight().map((response) => ({ ...response, id: m.id as string })),
+      discover: (m) => [{ id: m.id as string, type: "discover-result", result: { ok: true } }],
+      prove: (m) => [
+        {
+          id: m.id as string,
+          type: "prove-result",
+          result: { verified_locally: true, artifact: proveArtifact() },
+        },
+      ],
+    });
+
+    await proveDestinationInBrowser(
+      {
+        masterXPrv,
+        draft,
+        expectedVkHash: EXPECTED_VK_HASH,
+        browserProving: descriptor(),
+      },
+      { createWorker: () => worker },
+    );
+
+    const discoveryMessages = worker.seen.filter((message) => message.type === "discover");
+    expect(discoveryMessages).toHaveLength(1);
+    expect(JSON.parse(String(discoveryMessages[0]?.requestJson)).target_credentials_hex).toEqual([
+      draft.proofRequests[1]?.target_credential,
+    ]);
+    const proveMessages = worker.seen.filter((message) => message.type === "prove");
+    expect(JSON.parse(String(proveMessages[0]?.requestJson)).path).toEqual({ account: 0, role: 0, index: 5001 });
+    expect(JSON.parse(String(proveMessages[1]?.requestJson))).not.toHaveProperty("path");
   });
 
   it("sends acknowledged W1/W2/W3/W5/W6/W7 options to both preflight and prove", async () => {

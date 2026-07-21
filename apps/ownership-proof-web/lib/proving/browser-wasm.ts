@@ -160,9 +160,10 @@ export async function proveDestinationInBrowser(
     input.signal?.addEventListener("abort", onAbort);
 
     masterXPrvHex = bytesToHex(input.masterXPrv);
-    if (!allProofRequestsHavePath(input.draft.proofRequests)) {
+    const discoveryRequests = input.draft.proofRequests.filter((request) => request.path == null);
+    if (discoveryRequests.length > 0) {
       const discovery = await client.discover(
-        buildDiscoveryRequestJson(masterXPrvHex, input.draft.proofRequests),
+        buildDiscoveryRequestJson(masterXPrvHex, discoveryRequests),
         (progress) => {
           input.onProgress?.({
             provider: "browser-wasm",
@@ -176,9 +177,7 @@ export async function proveDestinationInBrowser(
         },
       );
       if (discovery.ok !== true) {
-        throw new Error(
-          "The browser could not locate the requested credential keys.",
-        );
+        throw new Error("The browser could not locate the requested credential keys.");
       }
     }
     input.onProgress?.({
@@ -528,19 +527,6 @@ function workerDiscoveryMetrics(
 
 function finiteProgressNumber(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
-}
-
-function allProofRequestsHavePath(requests: ClaimProofRequest[]): boolean {
-  return (
-    requests.length > 0 &&
-    requests.every(
-      (request) =>
-        request.path != null &&
-        Number.isInteger(request.path.account) &&
-        Number.isInteger(request.path.role) &&
-        Number.isInteger(request.path.index),
-    )
-  );
 }
 
 function buildProveRequestJson(
