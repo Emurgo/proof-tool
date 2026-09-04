@@ -5,8 +5,9 @@ module Main (main) where
 
 import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (forM_)
+import qualified Data.ByteString.Short as SBS
 import Data.Char (digitToInt, isHexDigit)
-import Data.List (nubBy, zipWith4)
+import Data.List (foldl', nubBy, zipWith4)
 
 import qualified PlutusCore as PLC
 import PlutusCore.Evaluation.Machine.ExBudget
@@ -34,7 +35,7 @@ import qualified PlutusTx.AssocMap as Map
 import qualified UntypedPlutusCore as UPLC
 import qualified UntypedPlutusCore.Evaluation.Machine.Cek as Cek
 
-import Ownership.OneShotNFT (oneShotNFTPolicy)
+import Ownership.OneShotNFT (oneShotNFTPolicy, oneShotNFTPolicyCode)
 import Ownership.ReclaimBase
   ( ReclaimBaseDatum (..)
   , reclaimBaseValidatorBuiltin
@@ -65,9 +66,11 @@ import Ownership.Verify
   , ownershipDestinationPublicInputDigest
   , ownershipDomain
   , ownershipProofBatchChallenge
+  , ownershipProofBatchChallengeFromDigestV2
   , ownershipProofBatchChallengeV2
   , ownershipProofBatchDomainV2
   , ownershipProofBatchMergeChallengeV2
+  , ownershipProofBatchMergeChallengeFromDigestV2
   , ownershipPublicInputDigest
   , parseVerifyingKey
   , parseVerifyingKeyBatch
@@ -130,9 +133,28 @@ flipFirstBit bytes =
       flipped = if even firstByte then firstByte + 1 else firstByte - 1
    in B.consByteString flipped (B.sliceByteString 1 (B.lengthOfByteString bytes - 1) bytes)
 
+replaceByteRange :: Integer -> Integer -> BuiltinByteString -> BuiltinByteString -> BuiltinByteString
+replaceByteRange offset width replacement bytes =
+  B.sliceByteString 0 offset bytes
+    <> B.sliceByteString 0 width replacement
+    <> B.sliceByteString
+      (offset + width)
+      (B.lengthOfByteString bytes - offset - width)
+      bytes
+
 batchPowers :: Integer -> Int -> [Integer]
 batchPowers challenge count =
   take count (iterate nextPower 1)
+  where
+    nextPower power = (power * challenge) `B.modInteger` blsScalarFieldOrder
+
+affineBatchCoefficients :: Integer -> Int -> [Integer]
+affineBatchCoefficients _ count | count <= 0 = []
+affineBatchCoefficients _ 1 = [1]
+affineBatchCoefficients challenge count =
+  let rawPowers = take (count - 1) (tail (iterate nextPower 1))
+      finalCoefficient = 1 - sum rawPowers
+   in rawPowers <> [finalCoefficient]
   where
     nextPower power = (power * challenge) `B.modInteger` blsScalarFieldOrder
 
@@ -190,14 +212,14 @@ assertSyntheticCoefficientFold parsedVk coefficients pubs eCmts commitments = do
 
 v8FrozenOracle :: [(Integer, Integer, Integer, Integer)]
 v8FrozenOracle =
-  [ (971923317177279104696445163957359688603141178563892274304415630153150620008, 1, 30143205349673303924038740226444575063052729468321387927570779271358684740710, 39234791792570413723461239854507960256910086163474480893678363808079511326207)
-  , (6185711955495340858609794866302178511720112464752392346501595720762008003062, 6185711955495340858609794866302178511720112464752392346501595720762008003063, 45675770430195617894998800070589506844327031987561357950086254326376367079086, 25786663917967831888009864530184787489742174014649030067927744084196421265168)
-  , (34138887377808395603384512789926079199329098514160463655105070377581579330927, 8331685811063389499885915231465427448168899038554601823500490310276358610632, 15934858627848114165623487994537679187039612408714501015116680999416582956046, 8454467585621254023424771275410613100767605678347115784234346645352002658108)
-  , (4050223649621952002893595634446234594930487798482185631130611749910858005088, 41799547642784208862480269318929996820721349195551639762915557832399871167963, 17649722512999231249500714495616807677063212623907778565865360782004086093631, 46359785802671086012403640538480516415065145731297601403076984750260122287013)
-  , (19412359996798938220956335213928230805118296267944318495706436628675030399339, 43111173811257102588193817507451208554052154719559573183577577355015017512519, 33870028047050484931424665247853027771852982096336211727828296267850146765768, 11790268529377436190119245658241540741457879385721931765982852769191648513136)
-  , (20408575888598363472074565533343346233650921066493644253234235177544607757237, 23503706297217456716252376843778474386831402656596089862165390917578226273549, 22758881971505448432558392706152000198335364978117121033584575808251427722287, 31642004732034419122469584493237329613967213972131674137279477063596969466721)
-  , (1798154814053191814673675094630726133966691227209037801793217750533554170715, 23540052811365506733268996157123482851850172370880410673415625202779070649460, 43429006371487139155772788962368599530646571065816866097018277631863101142236, 66491749857469224189329191298909567256418651152250996157723511154399292912)
-  , (17429327968848838354173297802306428513733999120619034431253556411933158794297, 49358161649994204865730070606441017630069309847630576157765577877925870379296, 21673031299103894338042973667441471770581287634887008546302843392695021473049, 39003710787239659322167481374543680233735483060007793929213729722179617098157)
+  [ (50442411711075748215921266772697221681179603093526476236420964056067519203599, 1, 30143205349673303924038740226444575063052729468321387927570779271358684740710, 12616897514453918613465561576924958183973370255421424840302415340139578259116)
+  , (4522374187785112937228054744222031778131830837187022397128643400154731314602, 4522374187785112937228054744222031778131830837187022397128643400154731314603, 51640516171894980725187521263048244809650264911803429431503456495261637458234, 12254022665103657078724406915065361913845925576252133507008523733932022814861)
+  , (15637346720080435198403742684630238688875501503663974255343514366383155897534, 33431622595154376017750129236147963025430447653090314705679096689778167372850, 36812552016172125693215795369881444223678537077779646455124567508283688329399, 40431319417502024173436734752181561251454318015720905670348530805967147528015)
+  , (34681294374507232326662790575675565948537848630948803282698335574598743561886, 36280548673278966016472614855764418960476525979870694425275284625963265765211, 47878446635516555587390671724510059342966601890460305194575660030127458932057, 29542133472835297542222785915181842243104861991787426615032293792468862059931)
+  , (14658485559402763428809550119599812236163308455105086613685763212419776932319, 42202829315785336552321092815833574879174529608618741158312539525880855922654, 5869879438528116962439358299197164596203647939824792252982415740472002095324, 38893318574479425467951132493543457965779580673256116937603346025419321199897)
+  , (2938336990265392109196292565335016137020337935194342046571353303835794208633, 5459018627370207392270544937194341132771570101529358057852679949698663260067, 50067811516884485496229832108776001067616159758082950395126642549401289646205, 38282346418619263443227319398152038047842881178685649171139278052156042598851)
+  , (27401494418813334142116006097122927487786576449604430417607045336444063405552, 6010421311165610438568976547318333620632106039099595564133824609923976058227, 37934608494279962300596124388122635427708190319500719907542922908469057155575, 46857231271072335014962423923438750044492986865622976726428076094684622810594)
+  , (19894384947974088521850780752037353382686510608436497559310948686135308617498, 16986875282854777479009164721923680463785616649533842967805404368869820314032, 36822004104357763431761631692794397529801699533043350027225631139993305316901, 19498998272616234906687653413651795299910198182123841848613310361950337636428)
   ]
 
 v8ComputedScalars :: BuiltinByteString -> [DistinctOwnershipFixture] -> (Integer, Integer, Integer, Integer)
@@ -278,17 +300,13 @@ assertCoefficientFirstMatchesLegacy verifierKey fixtures = do
 
   forM_ (zip fixtures checks) $ \(DistinctOwnershipFixture credential proof, check) -> do
     batchCommittedProofPub check
-      @?= ( B.byteStringToInteger
-              LittleEndian
-              (ownershipDestinationPublicInputDigest credential destinationAddressBytes)
-              `B.modInteger` blsScalarFieldOrder
-          )
+      @?= B.byteStringToInteger
+        LittleEndian
+        (ownershipDestinationPublicInputDigest credential destinationAddressBytes)
     batchCommittedProofECmt check
-      @?= ( B.byteStringToInteger
-              BigEndian
-              (expandMsgXmd48 (B.sliceByteString 192 96 proof))
-              `B.modInteger` blsScalarFieldOrder
-          )
+      @?= B.byteStringToInteger
+        BigEndian
+        (expandMsgXmd48 (B.sliceByteString 192 96 proof))
 
   B.bls12_381_G1_compress coefficientFirstPoint
     @?= B.bls12_381_G1_compress legacyPoint
@@ -307,9 +325,9 @@ safeBool value = do
     Left (_ :: SomeException) -> False
     Right ok                  -> ok
 
-builtinBoolToBool :: BI.BuiltinBool -> Bool
+builtinBoolToBool :: Bool -> Bool
 builtinBoolToBool condition =
-  BI.ifThenElse condition (\_ -> True) (\_ -> False) BI.unitval
+  condition
 
 runReclaimGlobalStatementV2 :: BuiltinByteString -> BuiltinByteString -> V3.ScriptContext -> Bool
 runReclaimGlobalStatementV2 verifierKey verifierKeyHash ctx =
@@ -379,8 +397,12 @@ evaluateCompiledScript script ctx =
         (Cek.restricting (ExRestrictingBudget unlimitedBudget))
         Cek.logEmitter
         namedTerm of
-        (Right _, _, logs) -> (True, null logs)
-        (Left _, _, logs)  -> (False, null logs)
+        Cek.CekReport result _ logs ->
+          ( case result of
+              Cek.CekFailure _ -> False
+              _ -> True
+          , null logs
+          )
 
 applyContextArgument :: Script -> V3.ScriptContext -> Script
 applyContextArgument (UPLC.Program ann version term) ctx =
@@ -451,19 +473,104 @@ main = do
         , testCase "V6 alpha and V8 IC0 fast paths compare exact 1, not 1+q" $ do
             builtinBoolToBool (batchCoefficientUsesUnscaledAlpha 1) @?= True
             builtinBoolToBool (batchCoefficientUsesUnscaledAlpha (1 + blsScalarFieldOrder)) @?= False
-        , testCase "two distinct proofs produce sum 1+r and do not take the batch alpha fast path" $ do
+        , testCase "two distinct proofs use transcript-dependent affine coefficients summing to one" $ do
             assertBool "distinct fixtures must carry different proof bytes" (firstDistinctProof /= secondDistinctProof)
             let r = ownershipProofBatchChallenge (firstDistinctProof <> secondDistinctProof)
-                coefficientSum = (1 + r) `B.modInteger` blsScalarFieldOrder
+                firstCoefficient = StatementV2.affineBatchCoefficient False 0 r
+                finalCoefficient = StatementV2.affineBatchCoefficient True firstCoefficient r
+                coefficientSum = firstCoefficient + finalCoefficient
             assertBool "batch challenge must be nonzero" (r >= 1)
-            assertBool "two-distinct coefficient sum must not equal one" (coefficientSum /= 1)
-            builtinBoolToBool (batchCoefficientUsesUnscaledAlpha coefficientSum) @?= False
+            firstCoefficient @?= r
+            coefficientSum @?= 1
+            builtinBoolToBool (batchCoefficientUsesUnscaledAlpha coefficientSum) @?= True
+        , testCase "affine N=1..9 coefficients sum exactly to one" $ do
+            let challenge = 17
+            forM_ [1 .. 9] $ \inputCount -> do
+              let coefficients = affineBatchCoefficients challenge inputCount
+              length coefficients @?= inputCount
+              assertBool "non-final powers must be canonical field elements" $
+                all (\coefficient -> coefficient >= 0 && coefficient < blsScalarFieldOrder) (init coefficients)
+              sum coefficients @?= 1
+              case inputCount of
+                1 -> coefficients @?= [1]
+                _ -> head coefficients @?= challenge
+        , testCase "affine folded error has the claimed degree-(N-1) polynomial form" $ do
+            let challenge = 19
+            forM_ [2 .. 9] $ \inputCount -> do
+              let coefficients = affineBatchCoefficients challenge inputCount
+                  errors = take inputCount [3 ..]
+                  finalError = last errors
+                  rawPowers = take (inputCount - 1) coefficients
+                  expected =
+                    ( finalError
+                        + sum
+                          [ power * (proofError - finalError)
+                          | (power, proofError) <- zip rawPowers (init errors)
+                          ]
+                    )
+                      `B.modInteger` blsScalarFieldOrder
+              foldScalarProducts (zip coefficients errors) @?= expected
         , testGroup "V8 coefficient-first vkX equals legacy point-first folding" $
             [ testCase ("P1/P7 frozen distinct N=" <> show inputCount) $ do
                 let fixtures = take inputCount distinctFixtures
                 v8ComputedScalars destinationVk fixtures @?= (v8FrozenOracle !! (inputCount - 1))
                 assertCoefficientFirstMatchesLegacy destinationVk fixtures
             | inputCount <- [1 .. 8]
+            ]
+        , testGroup "PV11 hybrid G1 column fold equals individual scalar folding" $
+            [ testCase ("N=" <> show inputCount) $ do
+                let points =
+                      [ B.bls12_381_G1_uncompress
+                          (B.sliceByteString 144 48 (distinctFixtureProof fixture))
+                      | fixture <- take inputCount distinctFixtures
+                      ]
+                    coefficients = fmap toInteger [1 .. inputCount]
+                case points of
+                  [] -> assertFailure "distinct fixture file has no proof points"
+                  firstPoint : tailPoints -> do
+                    let expected =
+                          foldl'
+                            ( \foldedPoint (coefficient, point) ->
+                                foldedPoint
+                                  `B.bls12_381_G1_add` (coefficient `B.bls12_381_G1_scalarMul` point)
+                            )
+                            (head coefficients `B.bls12_381_G1_scalarMul` firstPoint)
+                            (zip (tail coefficients) tailPoints)
+                        actual =
+                          StatementV2.finishBatchG1Column
+                            coefficients
+                            points
+                    B.bls12_381_G1_equals actual expected @?= True
+            | inputCount <- [1 .. 9]
+            ]
+        , testGroup "production merged PoK column equals challenge-scaled individual folding" $
+            [ testCase ("N=" <> show inputCount) $ do
+                let points =
+                      [ B.bls12_381_G1_uncompress
+                          (B.sliceByteString 288 48 (distinctFixtureProof fixture))
+                      | fixture <- take inputCount distinctFixtures
+                      ]
+                    coefficients = fmap toInteger [1 .. inputCount]
+                    mergeChallenge = blsScalarFieldOrder - 17
+                case points of
+                  [] -> assertFailure "distinct fixture file has no proof points"
+                  firstPoint : tailPoints -> do
+                    let individuallyFolded =
+                          foldl'
+                            ( \foldedPoint (coefficient, point) ->
+                                foldedPoint
+                                  `B.bls12_381_G1_add` (coefficient `B.bls12_381_G1_scalarMul` point)
+                            )
+                            (head coefficients `B.bls12_381_G1_scalarMul` firstPoint)
+                            (zip (tail coefficients) tailPoints)
+                        expected = mergeChallenge `B.bls12_381_G1_scalarMul` individuallyFolded
+                        actual =
+                          StatementV2.finishMergedPokColumn
+                            mergeChallenge
+                            coefficients
+                            points
+                    B.bls12_381_G1_equals actual expected @?= True
+            | inputCount <- [1 .. 9]
             ]
         , testCase "V8 coefficient folding preserves proof/public-input order algebraically" $ do
             case take 2 distinctFixtures of
@@ -583,13 +690,13 @@ main = do
                 let proof1 = distinctFixtureProof firstFixture
                     proof2 = distinctFixtureProof secondFixture
                 ownershipProofBatchChallenge (proof1 <> proof2)
-                  @?= 6185711955495340858609794866302178511720112464752392346501595720762008003062
+                  @?= 4522374187785112937228054744222031778131830837187022397128643400154731314602
                 ownershipProofBatchChallenge (proof2 <> proof1)
-                  @?= 528934552180871285474883085374963170932246311028689964823874044044330916369
+                  @?= 52277089290683175646375146049012444388388603745659467613427590668689663066920
                 ownershipProofBatchChallenge (flipFirstBit proof1 <> proof2)
-                  @?= 2240230196849817819172518376912252901795319243174045708068785302118221208191
+                  @?= 13630207165245381651560707831461376028856223358760353668267837541353561241607
                 ownershipProofBatchChallenge (proof1 <> proof1)
-                  @?= 32033878854358701438938469552727779661760405153761709520200384168200448811399
+                  @?= 32968818452889227241425011649581517532038723811812540079007272903071441703770
               _ -> assertFailure "distinct fixture file has fewer than two rows"
         ]
     , testGroup "Ownership.OneShotNFT"
@@ -608,6 +715,44 @@ main = do
         , testCase "ignores minting under other policies when exactly one own token is minted" $
             oneShotNFTPolicy seedRef (mintingContext [seedRef] (mintValue [(ownSymbol, [(tokenName, 1)]), (otherSymbol, [(otherTokenName, 10)])]))
               @?= True
+        , testCase "compact compiled policy accepts the ledger V3 context without traces" $ do
+            let script =
+                  compiledToProgram $
+                    oneShotNFTPolicyCode
+                      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
+                (succeeded, emittedNoLogs) =
+                  evaluateCompiledScript
+                    script
+                    (mintingContext [seedRef] (mintValue [(ownSymbol, [(tokenName, 1)])]))
+            assertBool "compact one-shot policy rejected a valid mint" succeeded
+            assertBool "compact one-shot policy emitted traces" emittedNoLogs
+        , testCase "compact compiled policy rejects a missing seed input" $ do
+            let script =
+                  compiledToProgram $
+                    oneShotNFTPolicyCode
+                      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
+                (succeeded, _) =
+                  evaluateCompiledScript
+                    script
+                    (mintingContext [otherRef] (mintValue [(ownSymbol, [(tokenName, 1)])]))
+            assertBool "compact one-shot policy accepted without the seed input" (not succeeded)
+        , testCase "compact compiled policy rejects multiple own tokens" $ do
+            let script =
+                  compiledToProgram $
+                    oneShotNFTPolicyCode
+                      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
+                (succeeded, _) =
+                  evaluateCompiledScript
+                    script
+                    (mintingContext [seedRef] (mintValue [(ownSymbol, [(tokenName, 2)])]))
+            assertBool "compact one-shot policy accepted multiple own tokens" (not succeeded)
+        , testCase "applied compact policy stays safely below the transaction-size limit" $ do
+            let code =
+                  oneShotNFTPolicyCode
+                    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
+            assertBool
+              "compact one-shot policy exceeded its 2 KiB regression budget"
+              (SBS.length (V3.serialiseCompiledCode code) <= 2048)
         ]
     , testGroup "Ownership.ReclaimBase"
         [ testCase "accepts when the configured withdrawal is present" $
@@ -701,7 +846,7 @@ main = do
                 , ("ProposingScript", PurposeProposing)
                 ]
             ]
-        , testCase "plutus-ledger-api 1.38 fixed TxInfo projection selects txInfoWdrl field 6" $ do
+        , testCase "plutus-ledger-api 1.66 fixed TxInfo projection selects txInfoWdrl field 6" $ do
             let ctx =
                   reclaimBaseContext
                     (Just validBaseDatum)
@@ -735,11 +880,15 @@ main = do
                     <> publicInputDigest
             transcript @?= expected
             B.blake2b_256 transcript
-              @?= bytesToBuiltin (decodeHex "75efd931d9ddf338bc58880ba5b042b2115d75b608f4bd72c22165b516bc4fc2")
+              @?= bytesToBuiltin (decodeHex "db4b577e72b2e66dd0069a712bc9919a91b1fec884e4b3707845ad1d5c7a10d8")
             ownershipProofBatchChallengeV2 transcript
-              @?= 908503580536723318674402094080487594791423671977714076978685087528917946307
+              @?= 46753756055432174727130478144644504699636988024777479247508281027930722275545
             ownershipProofBatchMergeChallengeV2 transcript
-              @?= 44262786702551963121691503326809832232322836267413292930891251623326440559893
+              @?= 29900474577369810522913066750840290793315551508418503922892237646146313942938
+            ownershipProofBatchChallengeFromDigestV2 (B.blake2b_256 transcript)
+              @?= ownershipProofBatchChallengeV2 transcript
+            ownershipProofBatchMergeChallengeFromDigestV2 (B.blake2b_256 transcript)
+              @?= 29900474577369810522913066750840290793315551508418503922892237646146313942938
         , testCase "golden all-distinct, repeated-full, and multi slots stay source-backed" $ do
             case take 2 distinctFixtures of
               [firstFixture, secondFixture] -> do
@@ -754,23 +903,23 @@ main = do
                     repeatedTranscript = StatementV2.reclaimBatchTranscriptV2 verifierKeyHash (proofSlotData [destinationProof, destinationProof]) (proofSlotData [repeatedDigest, repeatedDigest])
                     multiTranscript = StatementV2.reclaimBatchTranscriptV2 (B.blake2b_256 multiVk) (proofSlotData [multiProof]) (proofSlotData [multiPub])
                 B.blake2b_256 distinctTranscript
-                  @?= bytesToBuiltin (decodeHex "53a3777b2f0bf2c9961b50eb0e243cbedaf7f8b367131607f22a9fa9e4604791")
+                  @?= bytesToBuiltin (decodeHex "aa48b79ea14da80a5bbb39e45f906e7d33eab66a77bae3df0dadad08691a5faa")
                 ownershipProofBatchChallengeV2 distinctTranscript
-                  @?= 37830787132813288007666968507575178910493244800430188426869315086352656648082
+                  @?= 24585789368933400250699391609954347404120821747024560399393625858746441424811
                 ownershipProofBatchMergeChallengeV2 distinctTranscript
-                  @?= 38698140857556389275494025163187574286523348578132235522359358935216587054255
+                  @?= 42257150275670916147521091192749200111356823905878199943573746615969034812803
                 B.blake2b_256 repeatedTranscript
-                  @?= bytesToBuiltin (decodeHex "6d50762f7c6916531a4b11abf0b326b4a1d63bedf7013a2c6a791d48cd0e25bc")
+                  @?= bytesToBuiltin (decodeHex "e26729d49194b91ad37475c445157ab58c128a30f70b54921aa3bc09f026f32d")
                 ownershipProofBatchChallengeV2 repeatedTranscript
-                  @?= 49444263947046676257477883784954335478091752096716344371034914418851304056253
+                  @?= 49969102554804562140410889960163203324378532684033689099259573007256159449902
                 ownershipProofBatchMergeChallengeV2 repeatedTranscript
-                  @?= 47121016413796753695864927528822041120076087371690331019547667634862789403
+                  @?= 7388500705759781125121964993205144291910375556997236258510375434019818741820
                 B.blake2b_256 multiTranscript
                   @?= bytesToBuiltin (decodeHex "59b22d408d6c4965eb78632c959557811f00d99969b28ccddfba0012753cff71")
                 ownershipProofBatchChallengeV2 multiTranscript
                   @?= 40570654620357032943455514758320935667228665531329494875443015168245154774898
                 ownershipProofBatchMergeChallengeV2 multiTranscript
-                  @?= 8636757789949591304714306246332989594687787538241662237540073471059061109757
+                  @?= 40064708601075951454543535970521462014723160755037628349288067322570300150009
               _ -> assertFailure "distinct fixture file has fewer than two rows"
         , testCase "transcript framing trusts the deployment-checked verifier-key-hash width" $ do
             let transcriptProof = destinationProof
@@ -880,12 +1029,15 @@ main = do
                     [reclaimBaseInput]
                     [paramInputWithValue value]
                     [singleDestinationOutput]
+                ledgerAda = V3.singleton V3.adaSymbol V3.adaToken 2000000
                 samePolicyExtra =
-                  V3.singleton paramCurrencySymbol paramTokenName 1
+                  ledgerAda
+                    <> V3.singleton paramCurrencySymbol paramTokenName 1
                     <> V3.singleton paramCurrencySymbol otherTokenName 1
                 otherPolicyExtra =
-                  V3.singleton paramCurrencySymbol paramTokenName 1
+                  ledgerAda
                     <> V3.singleton otherSymbol otherTokenName 1
+                    <> V3.singleton paramCurrencySymbol paramTokenName 1
             samePolicyAccepted <- safeBool $
               runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context samePolicyExtra)
             otherPolicyAccepted <- safeBool $
@@ -963,6 +1115,26 @@ main = do
               runReclaimGlobalStatementV2 destinationVk verifierKeyHash $
                 reclaimGlobalStatementV2ContextWithOutputs [] [] 0 [] [paramInput] []
             zeroSlot @?= False
+            negativeParamsIdx <- safeBool $
+              runReclaimGlobalStatementV2 destinationVk verifierKeyHash $
+                reclaimGlobalStatementV2ContextWithOutputs
+                  [destinationProof]
+                  [digest]
+                  (-1)
+                  [reclaimBaseInput]
+                  [paramInput]
+                  [singleDestinationOutput]
+            outOfBoundsParamsIdx <- safeBool $
+              runReclaimGlobalStatementV2 destinationVk verifierKeyHash $
+                reclaimGlobalStatementV2ContextWithOutputs
+                  [destinationProof]
+                  [digest]
+                  1
+                  [reclaimBaseInput]
+                  [paramInput]
+                  [singleDestinationOutput]
+            negativeParamsIdx @?= True
+            outOfBoundsParamsIdx @?= False
             case take 2 distinctFixtures of
               [firstFixture, secondFixture] -> do
                 let fixtures = [firstFixture, secondFixture]
@@ -1018,7 +1190,7 @@ main = do
             StatementV2.v2VerifierKeyParametersMatch destinationVk (flipFirstBit verifierKeyHash) @?= False
         , testCase "reclaim-scripts-export global-v2 rejects a same-width verifier-key hash mismatch" $ do
             verifierKeyHex <- filter isHexDigit <$> readFile "testdata/ownership-destination-vk.hex"
-            let canonicalHash = "06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"
+            let canonicalHash = "b953a5133901bee9832254df08b76f28a8f5e5aba58683815623f6e1ec660fa7"
                 wrongHash = (if head canonicalHash == '0' then '1' else '0') : tail canonicalHash
                 canonicalHashBytes = bytesToBuiltin (decodeHex canonicalHash)
                 wrongHashBytes = bytesToBuiltin (decodeHex wrongHash)
@@ -1127,6 +1299,54 @@ main = do
               destinationVk
               (B.blake2b_256 destinationVk)
               (reclaimGlobalStatementV2ContextWithOutputs [] [] 0 [] [paramInput] [])
+        , testCase "compiled production V2 accepts N=9 and rejects isolated Groth16-C and PoK substitutions" $ do
+            let fixtures = take 9 distinctFixtures
+                proofs = fmap distinctFixtureProof fixtures
+                digests =
+                  [ ownershipDestinationPublicInputDigest
+                      (distinctFixtureCredential fixture)
+                      destinationAddressBytes
+                  | fixture <- fixtures
+                  ]
+                inputs =
+                  [ reclaimBaseInputAtWithDatum
+                      (B.consByteString (toInteger index) "production-merged-n9")
+                      (toInteger index)
+                      (ReclaimBaseDatum (distinctFixtureCredential fixture))
+                  | (index, fixture) <- zip [0 :: Int ..] fixtures
+                  ]
+                outputs = replicate 9 singleDestinationOutput
+                verifierKeyHash = B.blake2b_256 destinationVk
+                script = compiledReclaimGlobalStatementV2Script destinationVk verifierKeyHash
+                context candidateProofs =
+                  reclaimGlobalStatementV2ContextWithOutputs
+                    candidateProofs
+                    digests
+                    0
+                    inputs
+                    [paramInput]
+                    outputs
+            case proofs of
+              firstProof : secondProof : moreProofs -> do
+                let cSubstituted =
+                      replaceByteRange
+                        144
+                        48
+                        (B.sliceByteString 144 48 secondProof)
+                        firstProof
+                    pokSubstituted =
+                      replaceByteRange
+                        288
+                        48
+                        (B.sliceByteString 288 48 secondProof)
+                        firstProof
+                    (valid, _) = evaluateCompiledScript script (context proofs)
+                    (invalidC, _) = evaluateCompiledScript script (context (cSubstituted : secondProof : moreProofs))
+                    (invalidPok, _) = evaluateCompiledScript script (context (pokSubstituted : secondProof : moreProofs))
+                valid @?= True
+                invalidC @?= False
+                invalidPok @?= False
+              _ -> assertFailure "distinct fixture file has fewer than nine rows"
         ]
     , testGroup "Ownership.ReclaimGlobalMulti"
         [ testCase "encodes the fixed-byte multi public input digest" $
@@ -1273,18 +1493,40 @@ main = do
                   [exactDestinationOutput])
             firstSelected @?= True
             secondSelected @?= True
+        , testCase "multi validator aliases a negative parameter index to zero and rejects an out-of-bounds index" $ do
+            negative <- safeBool $
+              runReclaimGlobalMulti
+                multiVk
+                (reclaimGlobalMultiContext multiProof (-1) 0
+                  [reclaimBaseInput, differentOwnerReclaimBaseInput]
+                  [paramInput]
+                  [exactDestinationOutput])
+            outOfBounds <- safeBool $
+              runReclaimGlobalMulti
+                multiVk
+                (reclaimGlobalMultiContext multiProof 1 0
+                  [reclaimBaseInput, differentOwnerReclaimBaseInput]
+                  [paramInput]
+                  [exactDestinationOutput])
+            negative @?= True
+            outOfBounds @?= False
         , testCase "rejects an out-of-bounds destination output index" $ do
             ok <- safeBool $
               runReclaimGlobalMulti
                 vk
                 (reclaimGlobalMultiContext proof 0 1 [reclaimBaseInput, differentOwnerReclaimBaseInput] [paramInput] [exactDestinationOutput])
             ok @?= False
-        , testCase "rejects a negative destination output index" $ do
-            ok <- safeBool $
+        , testCase "aliases a negative destination output index to zero" $ do
+            zero <- safeBool $
               runReclaimGlobalMulti
-                vk
-                (reclaimGlobalMultiContext proof 0 (-1) [reclaimBaseInput, differentOwnerReclaimBaseInput] [paramInput] [exactDestinationOutput])
-            ok @?= False
+                multiVk
+                (reclaimGlobalMultiContext multiProof 0 0 [reclaimBaseInput, differentOwnerReclaimBaseInput] [paramInput] [exactDestinationOutput])
+            negative <- safeBool $
+              runReclaimGlobalMulti
+                multiVk
+                (reclaimGlobalMultiContext multiProof 0 (-1) [reclaimBaseInput, differentOwnerReclaimBaseInput] [paramInput] [exactDestinationOutput])
+            zero @?= True
+            negative @?= zero
         , testCase "allows duplicate credentials when every matching input is represented in order" $ do
             ok <- safeBool $
               validateMultiReclaimInputsWithProofCheck

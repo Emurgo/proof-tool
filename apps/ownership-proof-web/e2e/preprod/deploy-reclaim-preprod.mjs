@@ -19,6 +19,7 @@ import {
   validatorToScriptHash,
   walletFromSeed,
 } from "@lucid-evolution/lucid";
+import { createScalusEvaluator } from "@lucid-evolution/scalus-uplc";
 import { normalizePreprodWalletRoles } from "./preflight.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -64,7 +65,10 @@ export async function deployReclaimPreprod(options = {}) {
   const deployer = walletRole(walletFile, "deployer");
   const provider = createProvider(env);
   const protocol = await provider.getProtocolParameters();
-  const lucid = await Lucid(provider, NETWORK);
+  const lucid = await Lucid(provider, NETWORK, {
+    evaluator: createScalusEvaluator(),
+    presetProtocolParameters: protocol,
+  });
   lucid.selectWallet.fromSeed(deployer.mnemonic, { accountIndex: 0 });
   const deployerAddress = walletFromSeed(deployer.mnemonic, { network: NETWORK }).address;
   const deployerDetails = getAddressDetails(deployerAddress);
@@ -159,6 +163,7 @@ export async function deployReclaimPreprod(options = {}) {
     .complete({
       canonical: true,
       changeAddress: deployerAddress,
+      localUPLCEval: true,
       presetWalletInputs: deployerUtxos,
     });
 
@@ -510,7 +515,7 @@ export async function prepareDestinationKeys({ env, repoRoot, git, runGoFn = run
     "./cmd/proof-tool",
     "export-cardano-vk",
     "--key-version",
-    "ownership-destination-v2",
+    "ownership-destination-v3",
     "--keys-dir",
     keysDir,
     "--out",
@@ -821,8 +826,8 @@ export function buildManifest({
       datum_reclaim_base_script_hash: baseScriptHash,
     },
     proof: {
-      circuit_id: "root-ownership-destination-v2/bls12-381/groth16",
-      key_version: "ownership-destination-v2",
+      circuit_id: "root-ownership-destination-v3/bls12-381/groth16",
+      key_version: "ownership-destination-v3",
       destination_address_encoding: "destination-address-v1",
       vk_hash: destination.vkHash,
       cardano_vk_blake2b256: destination.cardanoVkBlake2b256,
