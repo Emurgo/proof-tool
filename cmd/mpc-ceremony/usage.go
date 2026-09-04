@@ -58,6 +58,7 @@ Commands:
   inspect chain        Authenticate and describe an accepted chain
   inspect participant  Match an existing key to the participant roster
   inspect enrollment   Authenticate an operational enrollment
+  ops attest-host-wipe  Sign a post-wipe macOS host attestation
   ops prepare-public-witness-receipt  Prepare witnessed closure bytes
   ops prepare-mirror-receipt  Authenticate a relay draft for offline signing
   ops export-signing   Export canonical operational bytes for offline signing
@@ -202,7 +203,9 @@ definition. The authoritative ceremony ID is derived from canonical content,
 including a 32-byte session nonce securely generated when omitted. Production
 mode requires exact clean source builds. The running binary is always allowed;
 each repeated --allowed-binary adds one authenticated binary for another
-platform to the signed definition.
+platform to the signed definition. For production Mac contributors, the
+participants file contains a sorted host_wipe_participants list. Those
+identities must later submit signed post-wipe evidence before release.
 `,
 	"phase1": `Usage:
   mpc-ceremony phase1 <contribute|attest-erasure|verify|close|beacon|seal> [flags]
@@ -458,11 +461,24 @@ coherence, and fail-closes GO unless all gates PASS and all four roles signed.
 Evidence URIs are content bindings only; the command performs no network fetch.
 `,
 	"ops": `Usage:
-  mpc-ceremony ops <prepare-public-witness-receipt|prepare-mirror-receipt|export-signing|import-signature|verify> [flags]
+  mpc-ceremony ops <attest-host-wipe|prepare-public-witness-receipt|prepare-mirror-receipt|export-signing|import-signature|verify> [flags]
 
 Operational records cover proof-of-possession enrollment, transfers and
 receipts, immutable mirrors, pre-beacon public witnesses, multi-operator relay
 evidence, governance events, and the release-bound operational evidence bundle.
+`,
+	"ops attest-host-wipe": `Usage:
+  mpc-ceremony ops attest-host-wipe --ceremony FILE \
+    --ceremony-signature FILE --coordinator-public-key-file KEY \
+    --participant-id ID --participant-signing-key KEY \
+    --wiped-at RFC3339 --out-dir DIR
+
+Run this only after the Mac used for a production contribution has undergone
+a supported whole-device erase and clean macOS reinstall. Do not restore old
+Docker Desktop data, snapshots, backups, or contribution copies. The signed
+record is an authenticated honest-participant claim, not physical proof of
+erasure. Release verification rejects a required record that does not postdate
+the participant's final contribution.
 `,
 	"ops prepare-public-witness-receipt": `Usage:
   mpc-ceremony ops prepare-public-witness-receipt \

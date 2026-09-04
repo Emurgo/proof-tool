@@ -52,6 +52,7 @@ func TestParticipantCLIHelpHasExplicitSafeFlagAllowlist(t *testing.T) {
 		{"inspect", "participant"},
 		{"inspect", "enrollment"},
 		{"ops"},
+		{"ops", "attest-host-wipe"},
 		{"ops", "prepare-public-witness-receipt"},
 		{"ops", "prepare-mirror-receipt"},
 		{"ops", "export-signing"},
@@ -195,6 +196,7 @@ func TestParticipantCLIHelpHasExplicitSafeFlagAllowlist(t *testing.T) {
 		"--accepted-at",
 		"--allowed-binary",
 		"--contributed-at",
+		"--wiped-at",
 	}
 	flagPattern := regexp.MustCompile(`--[a-z0-9-]+`)
 	seenSet := make(map[string]struct{})
@@ -222,6 +224,7 @@ func TestFinalizationAuditAndReleaseCommandsAreWired(t *testing.T) {
 		{Command: CommandDecisionPrepare, Options: DecisionPrepareOptions{}},
 		{Command: CommandDecisionSign, Options: DecisionSignOptions{}},
 		{Command: CommandDecisionVerify, Options: DecisionVerifyOptions{}},
+		{Command: CommandOpsAttestHostWipe, Options: HostWipeOptions{}},
 		{Command: CommandOpsPreparePublicWitnessReceipt, Options: OpsPreparePublicWitnessReceiptOptions{}},
 		{Command: CommandOpsPrepareMirrorReceipt, Options: OpsPrepareMirrorReceiptOptions{}},
 		{Command: CommandInspectDefinition, Options: InspectDefinitionOptions{}},
@@ -266,6 +269,7 @@ func TestEveryCommandRejectsWalletAndWitnessSecretInputs(t *testing.T) {
 		{"inspect", "participant"},
 		{"inspect", "enrollment"},
 		{"ops", "prepare-public-witness-receipt"},
+		{"ops", "attest-host-wipe"},
 		{"ops", "prepare-mirror-receipt"},
 		{"ops", "export-signing"},
 		{"ops", "import-signature"},

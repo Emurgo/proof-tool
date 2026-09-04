@@ -31,6 +31,14 @@ versions, compiler/build policies, dirty states, or multiple binaries for one
 platform. The signed definition records the full exact-digest allowlist;
 legacy v1 definitions remain one-binary ceremonies.
 
+The same v2 definition may freeze a sorted production Mac wipe policy through
+the participant input's `host_wipe_participants` field. The operational
+evidence bundle schema v2 carries the corresponding signed host-wipe records.
+Release signing recursively verifies that every required record belongs to the
+rostered participant and postdates that participant's final contribution, so
+accepted contributions can remain provisional without allowing premature
+parameter release.
+
 ## Coordinated distribution
 
 Compatibility with Relay is tested after both projects have released

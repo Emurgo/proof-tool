@@ -43,6 +43,15 @@ func TestVerifyOperationalEvidenceBundleEndToEndAndNegatives(t *testing.T) {
 		t.Fatalf("complete operational bundle rejected: %v", err)
 	}
 
+	t.Run("legacy v1 bundle without host-wipe policy", func(t *testing.T) {
+		f := newOperationalBundleFixture(t)
+		f.bundle.Schema = OperationalEvidenceBundleSchemaV1
+		resignBundle(t, &f)
+		if err := verify(f); err != nil {
+			t.Fatalf("legacy operational bundle rejected: %v", err)
+		}
+	})
+
 	t.Run("missing enrollment", func(t *testing.T) {
 		f := newOperationalBundleFixture(t)
 		f.bundle.Enrollments = f.bundle.Enrollments[1:]

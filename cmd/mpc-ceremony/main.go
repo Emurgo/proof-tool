@@ -274,7 +274,8 @@ command:
 			"chain": {}, "definition": {}, "enrollment": {}, "help": {}, "participant": {},
 		},
 		"ops": {
-			"export-signing": {}, "help": {}, "import-signature": {},
+			"attest-host-wipe": {},
+			"export-signing":   {}, "help": {}, "import-signature": {},
 			"prepare-mirror-receipt": {}, "prepare-public-witness-receipt": {}, "verify": {},
 		},
 		"release":   {"help": {}, "sign": {}, "verify": {}},
