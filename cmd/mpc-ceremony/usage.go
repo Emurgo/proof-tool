@@ -133,13 +133,15 @@ Both parent directories must already exist, both output paths must be distinct,
 and neither output may already exist. Private key bytes are never printed.
 `,
 	"rehearsal": `Usage:
-  mpc-ceremony rehearsal init --created-at RFC3339 --out-dir FRESH_DIR
+  mpc-ceremony rehearsal init --created-at RFC3339 --out-dir FRESH_DIR \
+    [--allowed-binary FILE ...]
 
 Rehearsal commands create same-host test identities and must never be used as
 production enrollment evidence.
 `,
 	"rehearsal init": `Usage:
-  mpc-ceremony rehearsal init --created-at RFC3339 --out-dir FRESH_DIR
+  mpc-ceremony rehearsal init --created-at RFC3339 --out-dir FRESH_DIR \
+    [--allowed-binary FILE ...]
 
 Creates fresh same-host identities and canonical configuration for exactly
 three participants, then initializes a signed rehearsal-tiny-v1 ceremony. The
@@ -193,12 +195,14 @@ the identity, role, role index, timestamp, and independence disclosure.
     --participants ROSTER.json --policy POLICY.json \
     --coordinator-key-id ID --coordinator-signing-key KEY \
     --created-at RFC3339 --out-dir DIR [--mode rehearsal|production] \
-    [--session-nonce-hex HEX]
+    [--session-nonce-hex HEX] [--allowed-binary FILE ...]
 
 Compiles a registered repository circuit and writes a fresh signed ceremony
 definition. The authoritative ceremony ID is derived from canonical content,
 including a 32-byte session nonce securely generated when omitted. Production
-mode requires an exact clean source build.
+mode requires exact clean source builds. The running binary is always allowed;
+each repeated --allowed-binary adds one authenticated binary for another
+platform to the signed definition.
 `,
 	"phase1": `Usage:
   mpc-ceremony phase1 <contribute|attest-erasure|verify|close|beacon|seal> [flags]

@@ -78,11 +78,13 @@ type InitOptions struct {
 	CoordinatorSigningKey string
 	OutDir                string
 	Mode                  string
+	AllowedBinaryPaths    []string
 }
 
 type RehearsalInitOptions struct {
-	CreatedAt string
-	OutDir    string
+	CreatedAt          string
+	OutDir             string
+	AllowedBinaryPaths []string
 }
 
 type ContributeOptions struct {

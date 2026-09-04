@@ -193,6 +193,7 @@ func TestParticipantCLIHelpHasExplicitSafeFlagAllowlist(t *testing.T) {
 		"--witness-enrollment",
 		"--witness-enrollment-signature",
 		"--accepted-at",
+		"--allowed-binary",
 		"--contributed-at",
 	}
 	flagPattern := regexp.MustCompile(`--[a-z0-9-]+`)

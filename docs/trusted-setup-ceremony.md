@@ -17,6 +17,14 @@ coordinated ceremony kit selects independently verified releases, tests the
 exact binaries together, and records their hashes as described in
 [`mpc-ceremony-release.md`](mpc-ceremony-release.md).
 
+A v2 ceremony may authorize both released Linux CPU targets in one signed
+definition. The running binary is included automatically; the coordinator adds
+the other exact executable at initialization with `--allowed-binary FILE`.
+Every participant still verifies that its current executable is an exact
+allowlist member, and every contribution attestation records the digest that
+actually ran. A v1 definition is intentionally interpreted as a singleton
+allowlist.
+
 ## Single-Actor Local Setup
 
 Run the local path with:

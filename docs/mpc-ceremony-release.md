@@ -10,7 +10,8 @@ following proof-tool properties:
 
 - the approved Go toolchain and module identity;
 - the patched vendor tree;
-- two byte-for-byte reproducible unsigned rehearsal packages;
+- two byte-for-byte reproducible unsigned rehearsal packages containing the
+  canonical Linux/amd64 binary and its Linux/arm64 counterpart;
 - the downloadable tiny rehearsal initializer and authenticated definition
   projection; and
 - absence of production signatures from rehearsal packages.
@@ -18,8 +19,17 @@ following proof-tool properties:
 Production release maintainers additionally follow
 `scripts/build-mpc-ceremony-release.sh` and
 `scripts/verify-mpc-ceremony-reproducible.sh` using the approved signed tag and
-offline build-signing key. Publish the standalone `mpc-ceremony` binary and its
-complete verification package through proof-tool's release process.
+offline build-signing key. Publish both `mpc-ceremony` (Linux/amd64) and
+`mpc-ceremony-linux-arm64`, together with their complete verification package,
+through proof-tool's release process.
+
+New ceremony definitions use schema v2. The coordinator runs either released
+binary and passes the other with repeated `--allowed-binary FILE` flags during
+`init` (or `rehearsal init`). Initialization reads the embedded Go build
+metadata and rejects different source commits, dependency versions, Go
+versions, compiler/build policies, dirty states, or multiple binaries for one
+platform. The signed definition records the full exact-digest allowlist;
+legacy v1 definitions remain one-binary ceremonies.
 
 ## Coordinated distribution
 

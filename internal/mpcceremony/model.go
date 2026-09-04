@@ -19,7 +19,8 @@ import (
 )
 
 const (
-	DefinitionSchema              = "proof-tool-mpc-ceremony-definition-v1"
+	DefinitionSchemaV1            = "proof-tool-mpc-ceremony-definition-v1"
+	DefinitionSchema              = "proof-tool-mpc-ceremony-definition-v2"
 	DetachedSignatureSchema       = "proof-tool-mpc-detached-signature-v1"
 	ContributionAttestationSchema = "proof-tool-mpc-contribution-attestation-v1"
 	ErasureAttestationSchema      = "proof-tool-mpc-erasure-attestation-v1"
@@ -47,6 +48,7 @@ const (
 	ProductionGOOS          = "linux"
 	ProductionGOARCH        = "amd64"
 	ProductionGOAMD64       = "v1"
+	ProductionGOARM64       = "v8.0"
 	ProductionCompiler      = "gc"
 	ProductionBuildMode     = "exe"
 	SignatureAlgorithm      = "Ed25519"
@@ -268,21 +270,99 @@ func (b CircuitBinding) Validate() error {
 }
 
 type SoftwareBinding struct {
-	ProofToolVersion   string `json:"proof_tool_version"`
-	GnarkVersion       string `json:"gnark_version"`
-	GnarkCryptoVersion string `json:"gnark_crypto_version"`
-	DrandVersion       string `json:"drand_version"`
-	GoVersion          string `json:"go_version"`
-	GoOS               string `json:"goos"`
-	GoArch             string `json:"goarch"`
-	GoAMD64            string `json:"goamd64,omitempty"`
-	Compiler           string `json:"compiler"`
-	BuildMode          string `json:"build_mode"`
-	CGOEnabled         bool   `json:"cgo_enabled"`
-	TrimPath           bool   `json:"trimpath"`
-	SourceCommit       string `json:"source_commit"`
-	SourceDirty        bool   `json:"source_dirty"`
-	ToolBinary         Digest `json:"tool_binary"`
+	ProofToolVersion   string           `json:"proof_tool_version"`
+	GnarkVersion       string           `json:"gnark_version"`
+	GnarkCryptoVersion string           `json:"gnark_crypto_version"`
+	DrandVersion       string           `json:"drand_version"`
+	GoVersion          string           `json:"go_version"`
+	GoOS               string           `json:"goos"`
+	GoArch             string           `json:"goarch"`
+	GoAMD64            string           `json:"goamd64,omitempty"`
+	GoARM64            string           `json:"goarm64,omitempty"`
+	Compiler           string           `json:"compiler"`
+	BuildMode          string           `json:"build_mode"`
+	CGOEnabled         bool             `json:"cgo_enabled"`
+	TrimPath           bool             `json:"trimpath"`
+	SourceCommit       string           `json:"source_commit"`
+	SourceDirty        bool             `json:"source_dirty"`
+	ToolBinary         Digest           `json:"tool_binary"`
+	Binaries           []SoftwareBinary `json:"binaries,omitempty"`
+}
+
+// SoftwareBinary binds one supported execution platform to the exact
+// mpc-ceremony executable bytes approved by the signed definition. The
+// top-level GoOS/GoArch/variant and ToolBinary fields remain the canonical
+// primary entry so v1 definitions can be interpreted as singleton policies.
+type SoftwareBinary struct {
+	GoOS       string `json:"goos"`
+	GoArch     string `json:"goarch"`
+	GoAMD64    string `json:"goamd64,omitempty"`
+	GoARM64    string `json:"goarm64,omitempty"`
+	ToolBinary Digest `json:"tool_binary"`
+}
+
+func (b SoftwareBinary) Validate() error {
+	if strings.TrimSpace(b.GoOS) == "" {
+		return errors.New("goos is required")
+	}
+	if strings.TrimSpace(b.GoArch) == "" {
+		return errors.New("goarch is required")
+	}
+	switch b.GoArch {
+	case "amd64":
+		if strings.TrimSpace(b.GoAMD64) == "" {
+			return errors.New("goamd64 is required for amd64 binaries")
+		}
+		if b.GoARM64 != "" {
+			return errors.New("goarm64 must be empty for amd64 binaries")
+		}
+	case "arm64":
+		if strings.TrimSpace(b.GoARM64) == "" {
+			return errors.New("goarm64 is required for arm64 binaries")
+		}
+		if b.GoAMD64 != "" {
+			return errors.New("goamd64 must be empty for arm64 binaries")
+		}
+	default:
+		if b.GoAMD64 != "" || b.GoARM64 != "" {
+			return errors.New("architecture variant must be empty for unsupported architectures")
+		}
+	}
+	if err := b.ToolBinary.Validate(); err != nil {
+		return fmt.Errorf("tool_binary: %w", err)
+	}
+	return nil
+}
+
+func (b SoftwareBinary) platformKey() string {
+	return b.GoOS + "/" + b.GoArch + "/" + b.GoAMD64 + "/" + b.GoARM64
+}
+
+func (b SoftwareBinding) primaryBinary() SoftwareBinary {
+	return SoftwareBinary{
+		GoOS: b.GoOS, GoArch: b.GoArch, GoAMD64: b.GoAMD64, GoARM64: b.GoARM64,
+		ToolBinary: b.ToolBinary,
+	}
+}
+
+// AllowedBinaries returns the signed exact-binary policy. Legacy v1 software
+// bindings have no Binaries field and are treated as a singleton policy.
+func (b SoftwareBinding) AllowedBinaries() []SoftwareBinary {
+	if len(b.Binaries) == 0 {
+		return []SoftwareBinary{b.primaryBinary()}
+	}
+	return append([]SoftwareBinary(nil), b.Binaries...)
+}
+
+// AllowsToolBinary reports whether a digest is one of the exact binaries in
+// the signed policy. Contribution attestations already bind this full digest.
+func (b SoftwareBinding) AllowsToolBinary(digest Digest) bool {
+	for _, allowed := range b.AllowedBinaries() {
+		if allowed.ToolBinary == digest {
+			return true
+		}
+	}
+	return false
 }
 
 func (b SoftwareBinding) Validate() error {
@@ -310,6 +390,15 @@ func (b SoftwareBinding) Validate() error {
 	if b.GoArch == ProductionGOARCH && strings.TrimSpace(b.GoAMD64) == "" {
 		return errors.New("goamd64 is required for amd64 binaries")
 	}
+	if b.GoArch == "arm64" && strings.TrimSpace(b.GoARM64) == "" {
+		return errors.New("goarm64 is required for arm64 binaries")
+	}
+	if b.GoArch != "amd64" && b.GoAMD64 != "" {
+		return errors.New("goamd64 must be empty for non-amd64 binaries")
+	}
+	if b.GoArch != "arm64" && b.GoARM64 != "" {
+		return errors.New("goarm64 must be empty for non-arm64 binaries")
+	}
 	if strings.TrimSpace(b.Compiler) == "" {
 		return errors.New("compiler is required")
 	}
@@ -321,6 +410,20 @@ func (b SoftwareBinding) Validate() error {
 	}
 	if err := b.ToolBinary.Validate(); err != nil {
 		return fmt.Errorf("tool_binary: %w", err)
+	}
+	if len(b.Binaries) > 8 {
+		return errors.New("binaries exceed maximum 8")
+	}
+	for index, binary := range b.Binaries {
+		if err := binary.Validate(); err != nil {
+			return fmt.Errorf("binaries %d: %w", index, err)
+		}
+		if index > 0 && b.Binaries[index-1].platformKey() >= binary.platformKey() {
+			return errors.New("binaries must be strictly sorted by platform with no duplicates")
+		}
+	}
+	if len(b.Binaries) > 0 && b.Binaries[0] != b.primaryBinary() {
+		return errors.New("top-level software binary must equal the first canonical binaries entry")
 	}
 	return nil
 }

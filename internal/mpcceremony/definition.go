@@ -57,13 +57,17 @@ type DefinitionOptions struct {
 }
 
 func NewCeremonyDefinition(options DefinitionOptions) (CeremonyDefinition, error) {
+	software := options.Software
+	if len(software.Binaries) == 0 {
+		software.Binaries = []SoftwareBinary{software.primaryBinary()}
+	}
 	definition := CeremonyDefinition{
 		Schema:          DefinitionSchema,
 		Mode:            options.Mode,
 		CreatedAt:       options.CreatedAt,
 		SessionNonceHex: options.SessionNonceHex,
 		Circuit:         options.Circuit,
-		Software:        options.Software,
+		Software:        software,
 		Coordinator:     options.Coordinator,
 		ReleaseSigner:   options.ReleaseSigner,
 		Auditors:        append([]Identity(nil), options.Auditors...),
@@ -89,6 +93,9 @@ func NewCeremonyDefinition(options DefinitionOptions) (CeremonyDefinition, error
 // compilation from metadata construction.
 func FinalizeCeremonyDefinition(definition CeremonyDefinition) (CeremonyDefinition, error) {
 	definition.Schema = DefinitionSchema
+	if len(definition.Software.Binaries) == 0 {
+		definition.Software.Binaries = []SoftwareBinary{definition.Software.primaryBinary()}
+	}
 	definition.CeremonyID = ""
 	id, err := ComputeCeremonyID(definition)
 	if err != nil {
@@ -106,7 +113,11 @@ func ComputeCeremonyID(definition CeremonyDefinition) (string, error) {
 	if err := definition.validate(false); err != nil {
 		return "", err
 	}
-	return canonicalHash("proof-tool/mpc-ceremony/root/v1", definition)
+	domain := "proof-tool/mpc-ceremony/root/v2"
+	if definition.Schema == DefinitionSchemaV1 {
+		domain = "proof-tool/mpc-ceremony/root/v1"
+	}
+	return canonicalHash(domain, definition)
 }
 
 func (d CeremonyDefinition) Validate() error {
@@ -124,8 +135,17 @@ func (d CeremonyDefinition) Validate() error {
 }
 
 func (d CeremonyDefinition) validate(requireID bool) error {
-	if d.Schema != DefinitionSchema {
-		return fmt.Errorf("definition schema %q, want %q", d.Schema, DefinitionSchema)
+	switch d.Schema {
+	case DefinitionSchema:
+	case DefinitionSchemaV1:
+		if len(d.Software.Binaries) != 0 || d.Software.GoARM64 != "" {
+			return errors.New("definition v1 must not contain v2 software fields")
+		}
+	default:
+		return fmt.Errorf(
+			"definition schema %q, want %q or %q",
+			d.Schema, DefinitionSchemaV1, DefinitionSchema,
+		)
 	}
 	if requireID {
 		if err := validateTaggedHex(d.CeremonyID, "sha256:", 32); err != nil {
@@ -159,6 +179,7 @@ func (d CeremonyDefinition) validate(requireID bool) error {
 			d.Software.GoOS,
 			d.Software.GoArch,
 			d.Software.GoAMD64,
+			d.Software.GoARM64,
 			d.Software.Compiler,
 			d.Software.BuildMode,
 			d.Software.CGOEnabled,
@@ -185,6 +206,26 @@ func (d CeremonyDefinition) validate(requireID bool) error {
 	}
 	if err := d.Software.Validate(); err != nil {
 		return fmt.Errorf("software: %w", err)
+	}
+	if d.Schema == DefinitionSchema && len(d.Software.Binaries) == 0 {
+		return errors.New("definition v2 requires at least one allowed software binary")
+	}
+	if d.Mode == ModeProduction {
+		for index, binary := range d.Software.AllowedBinaries() {
+			if err := validateProductionBuildProfile(
+				d.Software.GoVersion,
+				binary.GoOS,
+				binary.GoArch,
+				binary.GoAMD64,
+				binary.GoARM64,
+				d.Software.Compiler,
+				d.Software.BuildMode,
+				d.Software.CGOEnabled,
+				d.Software.TrimPath,
+			); err != nil {
+				return fmt.Errorf("production software binary %d profile: %w", index, err)
+			}
+		}
 	}
 	if err := d.Coordinator.Validate(); err != nil {
 		return fmt.Errorf("coordinator: %w", err)

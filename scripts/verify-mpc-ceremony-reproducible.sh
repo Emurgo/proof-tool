@@ -87,6 +87,9 @@ fi
 BUILD_A=$1
 BUILD_B=$2
 EXPECTED_FILES=(
+  arm64-binary-manifest.json
+  arm64-go-build-info.txt
+  arm64-sbom.cdx.json
   binary-manifest.json
   build-mode.txt
   build-package-manifest.json
@@ -99,6 +102,7 @@ EXPECTED_FILES=(
   go-build-info.txt
   mpc-finalization-evidence
   mpc-ceremony
+  mpc-ceremony-linux-arm64
   sbom.cdx.json
   signed-tag-object.txt
   signed-tag-signer-fingerprint.txt
@@ -190,7 +194,8 @@ for dir in "$BUILD_A" "$BUILD_B"; do
       exit 1
     fi
     expected_mode=444
-    if [[ "$name" == "mpc-ceremony" || "$name" == "mpc-finalization-evidence" ]]; then
+    if [[ "$name" == "mpc-ceremony" || "$name" == "mpc-ceremony-linux-arm64" ||
+      "$name" == "mpc-finalization-evidence" ]]; then
       expected_mode=555
     fi
     actual_mode=$(stat -c %a "$dir/$name")
@@ -199,8 +204,9 @@ for dir in "$BUILD_A" "$BUILD_B"; do
       exit 1
     fi
   done
-  if [[ ! -x "$dir/mpc-ceremony" || ! -x "$dir/mpc-finalization-evidence" ]]; then
-    echo "FAIL: both release binaries must be executable: $dir" >&2
+  if [[ ! -x "$dir/mpc-ceremony" || ! -x "$dir/mpc-ceremony-linux-arm64" ||
+    ! -x "$dir/mpc-finalization-evidence" ]]; then
+    echo "FAIL: all release binaries must be executable: $dir" >&2
     exit 1
   fi
   if [[ "$MODE" == "production" ]]; then
@@ -251,6 +257,26 @@ for dir in "$BUILD_A" "$BUILD_B"; do
     exit 1
   fi
   rm -f -- "$BUILD_INFO_TMP"
+  ARM64_BUILD_INFO_TMP=$(mktemp "${TMPDIR:-/tmp}/mpc-arm64-build-info.XXXXXXXX")
+  (
+    cd "$dir"
+    env -u GOROOT -u GOAMD64 \
+      CGO_ENABLED=0 \
+      GOARCH=arm64 \
+      GOENV=off \
+      GOEXPERIMENT= \
+      GOFIPS140=off \
+      GOOS=linux \
+      GOARM64=v8.0 \
+      GOTOOLCHAIN=local \
+      "$GO_BIN" version -m ./mpc-ceremony-linux-arm64 >"$ARM64_BUILD_INFO_TMP"
+  )
+  if ! cmp "$ARM64_BUILD_INFO_TMP" "$dir/arm64-go-build-info.txt"; then
+    rm -f -- "$ARM64_BUILD_INFO_TMP"
+    echo "FAIL: saved Go build information does not exactly describe the arm64 binary: $dir" >&2
+    exit 1
+  fi
+  rm -f -- "$ARM64_BUILD_INFO_TMP"
   EVIDENCE_BUILD_INFO_TMP=$(mktemp "${TMPDIR:-/tmp}/mpc-finalization-build-info.XXXXXXXX")
   (
     cd "$dir"
@@ -275,6 +301,7 @@ done
 
 diff -r --no-dereference "$BUILD_A" "$BUILD_B"
 cmp "$BUILD_A/mpc-ceremony" "$BUILD_B/mpc-ceremony"
+cmp "$BUILD_A/mpc-ceremony-linux-arm64" "$BUILD_B/mpc-ceremony-linux-arm64"
 cmp "$BUILD_A/mpc-finalization-evidence" "$BUILD_B/mpc-finalization-evidence"
 
 if [[ "$MODE" == "production" ]]; then
@@ -283,4 +310,5 @@ else
   echo "OK: independent MPC ceremony rehearsal builds are semantically valid and byte-identical (NOT PRODUCTION)"
 fi
 sha256sum "$BUILD_A/mpc-ceremony"
+sha256sum "$BUILD_A/mpc-ceremony-linux-arm64"
 sha256sum "$BUILD_A/mpc-finalization-evidence"

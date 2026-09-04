@@ -164,11 +164,19 @@ func parseRehearsal(invocation Invocation, args []string) (Invocation, error) {
 
 func parseRehearsalInit(args []string) (RehearsalInitOptions, error) {
 	var options RehearsalInitOptions
+	var allowedBinaries stringList
 	fs := commandFlagSet("rehearsal init")
 	fs.StringVar(&options.CreatedAt, "created-at", "", "ceremony creation timestamp in RFC3339")
 	fs.StringVar(&options.OutDir, "out-dir", "", "fresh rehearsal work directory")
+	fs.Var(&allowedBinaries, "allowed-binary", "additional exact mpc-ceremony binary to sign into the platform allowlist (repeatable)")
 	if err := parseFlags(fs, args); err != nil {
 		return options, err
+	}
+	options.AllowedBinaryPaths = append([]string(nil), allowedBinaries...)
+	for _, path := range options.AllowedBinaryPaths {
+		if err := validatePathValue("--allowed-binary", path); err != nil {
+			return options, err
+		}
 	}
 	return options, requireValues(
 		value("--created-at", options.CreatedAt),
@@ -687,6 +695,7 @@ func parseRelease(invocation Invocation, args []string) (Invocation, error) {
 
 func parseInit(args []string) (InitOptions, error) {
 	var options InitOptions
+	var allowedBinaries stringList
 	fs := commandFlagSet("init")
 	fs.StringVar(&options.SessionNonceHex, "session-nonce-hex", "", "optional 32-byte session nonce as hex; generated securely when omitted")
 	fs.StringVar(&options.CreatedAt, "created-at", "", "ceremony creation timestamp in RFC3339")
@@ -697,8 +706,15 @@ func parseInit(args []string) (InitOptions, error) {
 	fs.StringVar(&options.CoordinatorSigningKey, "coordinator-signing-key", "", "existing Ed25519 coordinator private key path")
 	fs.StringVar(&options.OutDir, "out-dir", "", "fresh ceremony directory")
 	fs.StringVar(&options.Mode, "mode", "rehearsal", "ceremony mode: rehearsal or production")
+	fs.Var(&allowedBinaries, "allowed-binary", "additional exact mpc-ceremony binary to sign into the platform allowlist (repeatable)")
 	if err := parseFlags(fs, args); err != nil {
 		return options, err
+	}
+	options.AllowedBinaryPaths = append([]string(nil), allowedBinaries...)
+	for _, path := range options.AllowedBinaryPaths {
+		if err := validatePathValue("--allowed-binary", path); err != nil {
+			return options, err
+		}
 	}
 	if options.Mode != "rehearsal" && options.Mode != "production" {
 		return options, errors.New("--mode must be rehearsal or production")

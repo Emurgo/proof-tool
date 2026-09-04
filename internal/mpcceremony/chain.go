@@ -351,7 +351,7 @@ func ValidateAttestationAcceptance(
 	if !ok || participant.Identity.KeyID != attestation.ParticipantKeyID {
 		return errors.New("attestation participant identity does not match definition")
 	}
-	if definition.Software.ToolBinary != attestation.ToolBinary ||
+	if !definition.Software.AllowsToolBinary(attestation.ToolBinary) ||
 		definition.Software.SourceCommit != attestation.SourceCommit ||
 		definition.Software.GnarkVersion != attestation.GnarkVersion ||
 		definition.Software.GnarkCryptoVersion != attestation.GnarkCryptoVersion ||

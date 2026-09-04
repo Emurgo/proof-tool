@@ -120,6 +120,15 @@ func executeInit(options InitOptions) (CommandResult, error) {
 	if err != nil {
 		return CommandResult{}, err
 	}
+	runningSoftware, err = mpcceremony.SoftwareBindingWithAllowedBinaryFiles(
+		runningSoftware,
+		proofToolVersion,
+		options.Mode,
+		options.AllowedBinaryPaths,
+	)
+	if err != nil {
+		return CommandResult{}, err
+	}
 	nonce, err := sessionNonce(options.SessionNonceHex)
 	if err != nil {
 		return CommandResult{}, err

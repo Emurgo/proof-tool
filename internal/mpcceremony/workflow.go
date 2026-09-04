@@ -54,6 +54,7 @@ type TrustPaths struct {
 type TrustedCeremony struct {
 	Definition           CeremonyDefinition
 	CoordinatorPublicKey ed25519.PublicKey
+	RunningSoftware      SoftwareBinding
 }
 
 // InitParticipants is the fixed-field, canonical enrollment input accepted by
@@ -242,6 +243,13 @@ func loadOperationalCeremony(paths TrustPaths) (*TrustedCeremony, error) {
 		trusted.Definition.Mode,
 	); err != nil {
 		return nil, fmt.Errorf("running software does not match signed ceremony definition: %w", err)
+	}
+	trusted.RunningSoftware, err = RunningSoftwareBindingForMode(
+		trusted.Definition.Software.ProofToolVersion,
+		trusted.Definition.Mode,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("record running software identity: %w", err)
 	}
 	return trusted, nil
 }
@@ -783,7 +791,7 @@ func CreateContributionCandidate(options ContributionFilesOptions) (result Contr
 		PreviousPayload:      previousPayload,
 		OutputPayload:        outputRef,
 		PreviousAcceptanceID: previousRecordID,
-		ToolBinary:           trusted.Definition.Software.ToolBinary,
+		ToolBinary:           trusted.RunningSoftware.ToolBinary,
 		SourceCommit:         trusted.Definition.Software.SourceCommit,
 		GnarkVersion:         trusted.Definition.Software.GnarkVersion,
 		GnarkCryptoVersion:   trusted.Definition.Software.GnarkCryptoVersion,

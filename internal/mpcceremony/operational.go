@@ -1070,7 +1070,7 @@ func identityOverlapsDefinition(definition CeremonyDefinition, candidate Identit
 
 func verifyTransferSource(definition CeremonyDefinition, source TransferSourceBinding) error {
 	if source.SourceCommit != definition.Software.SourceCommit ||
-		source.ToolBinary != definition.Software.ToolBinary ||
+		!definition.Software.AllowsToolBinary(source.ToolBinary) ||
 		source.R1CS != definition.Circuit.R1CS {
 		return errors.New("transfer source, binary, or R1CS binding does not match ceremony definition")
 	}

@@ -467,7 +467,7 @@ function releaseFixture() {
     vk_hash: nativeDigest.blake2b256,
   };
   const ceremony = {
-    schema: "proof-tool-mpc-ceremony-definition-v1",
+    schema: "proof-tool-mpc-ceremony-definition-v2",
     ceremony_id: ceremonyID,
     mode: "production",
     software: { source_commit: sourceCommit, source_dirty: false },
