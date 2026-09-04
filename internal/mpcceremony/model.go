@@ -11,8 +11,10 @@ import (
 	"path"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
+	"filippo.io/edwards25519"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -31,12 +33,17 @@ const (
 
 	KeyVersionDestinationV2 = "ownership-destination-v2"
 	CircuitIDDestinationV2  = "root-ownership-destination-v2/bls12-381/groth16"
+	// KeyVersionRehearsal names the tiny circuit used to exercise the ceremony
+	// machinery at a small domain. It is accepted only when mode is rehearsal;
+	// see CeremonyDefinition.validate.
+	KeyVersionRehearsal     = "rehearsal-tiny-v1"
+	CircuitIDRehearsal      = "rehearsal-tiny-v1/bls12-381/groth16"
 	CurveBLS12381           = "BLS12-381"
 	BackendGroth16          = "groth16"
 	GnarkVersion            = "v0.15.0"
 	GnarkCryptoVersion      = "v0.20.1"
 	DrandVersion            = "v2.1.6"
-	ProductionGoVersion     = "go1.26.5"
+	ProductionGoVersion     = "go1.26.6"
 	ProductionGOOS          = "linux"
 	ProductionGOARCH        = "amd64"
 	ProductionGOAMD64       = "v1"
@@ -55,6 +62,12 @@ const (
 	ModeProduction          = "production"
 
 	MaxParticipants = 20
+	// MaxAuditors bounds enrolled auditors. The final transcript stores audit
+	// reports in an artifact list capped at MaxParticipants entries, so the
+	// bound must be enforced at enrollment too: without it a ceremony could
+	// enroll more auditors than the transcript can record and discover that
+	// only at release, after every audit had already been performed.
+	MaxAuditors = MaxParticipants
 )
 
 type Phase string
@@ -130,17 +143,17 @@ func (i Identity) Validate() error {
 	if err := validateID("identity id", i.ID); err != nil {
 		return err
 	}
-	if strings.TrimSpace(i.DisplayName) == "" || i.DisplayName != strings.TrimSpace(i.DisplayName) {
-		return errors.New("identity display_name must be non-empty and trimmed")
-	}
-	if !utf8.ValidString(i.DisplayName) {
-		return errors.New("identity display_name must be valid UTF-8")
+	if err := validateDisplayName(i.DisplayName); err != nil {
+		return fmt.Errorf("identity display_name: %w", err)
 	}
 	if err := validateID("identity key_id", i.KeyID); err != nil {
 		return err
 	}
 	pub, err := decodeFixedHex(i.Ed25519PublicKeyHex, 32)
 	if err != nil {
+		return fmt.Errorf("identity ed25519_public_key_hex: %w", err)
+	}
+	if err := validateEd25519PublicKey(pub); err != nil {
 		return fmt.Errorf("identity ed25519_public_key_hex: %w", err)
 	}
 	want := taggedSHA256(pub)
@@ -212,11 +225,23 @@ type CircuitBinding struct {
 }
 
 func (b CircuitBinding) Validate() error {
-	if b.KeyVersion != KeyVersionDestinationV2 {
-		return fmt.Errorf("key_version %q, want %q", b.KeyVersion, KeyVersionDestinationV2)
-	}
-	if b.CircuitID != CircuitIDDestinationV2 {
-		return fmt.Errorf("circuit_id %q, want %q", b.CircuitID, CircuitIDDestinationV2)
+	// Key version and circuit id are checked as a pair, not independently. A
+	// definition naming one circuit's version with another's id would otherwise
+	// pass both checks separately while describing nothing that exists.
+	//
+	// This is membership in a closed set rather than equality with a single
+	// constant, which is a weaker check than it replaced. What restores the
+	// strength is that a production definition may only name destination-v2;
+	// CeremonyDefinition.validate enforces that, and it is the only place that
+	// knows the mode.
+	switch {
+	case b.KeyVersion == KeyVersionDestinationV2 && b.CircuitID == CircuitIDDestinationV2:
+	case b.KeyVersion == KeyVersionRehearsal && b.CircuitID == CircuitIDRehearsal:
+	default:
+		return fmt.Errorf(
+			"key_version %q with circuit_id %q is not a known circuit",
+			b.KeyVersion, b.CircuitID,
+		)
 	}
 	if b.Curve != CurveBLS12381 {
 		return fmt.Errorf("curve %q, want %q", b.Curve, CurveBLS12381)
@@ -500,6 +525,34 @@ func scanJSONValue(decoder *json.Decoder) error {
 	return nil
 }
 
+// validateEd25519PublicKey rejects the byte strings that decode without error
+// but are unusable as a ceremony identity.
+//
+// Ed25519 verification computes [-k]A + [S]B and compares it to R. When A is a
+// small-order point that equation collapses: the signature R = identity, S = 0
+// then verifies against every message, so anyone can forge signatures for that
+// identity without holding a private key. Enrolling such a key in the roster
+// therefore voids every signature-based control for that participant, auditor,
+// witness, coordinator, or release signer.
+//
+// Non-canonical encodings are rejected separately. Identity uniqueness across
+// the definition is enforced on public_key_fingerprint, which is a hash of
+// these exact bytes, so two encodings of one point would otherwise present as
+// two distinct identities.
+func validateEd25519PublicKey(pub []byte) error {
+	point, err := new(edwards25519.Point).SetBytes(pub)
+	if err != nil {
+		return fmt.Errorf("not a valid Ed25519 curve point: %w", err)
+	}
+	if !bytes.Equal(point.Bytes(), pub) {
+		return errors.New("Ed25519 public key is not canonically encoded")
+	}
+	if new(edwards25519.Point).MultByCofactor(point).Equal(edwards25519.NewIdentityPoint()) == 1 {
+		return errors.New("Ed25519 public key has small order; signatures under it are forgeable")
+	}
+	return nil
+}
+
 func validateTaggedHex(value, prefix string, bytes int) error {
 	if !strings.HasPrefix(value, prefix) {
 		return fmt.Errorf("must start with %q", prefix)
@@ -546,6 +599,82 @@ func validateArtifactName(value string) error {
 	}
 	if strings.Contains(value, "\\") || strings.HasPrefix(value, "/") || path.Clean(value) != value || value == "." {
 		return fmt.Errorf("artifact name %q must be a clean relative logical path", value)
+	}
+	if err := rejectDeceptiveRunes(value); err != nil {
+		return fmt.Errorf("artifact name %q %w", value, err)
+	}
+	for segment := range strings.SplitSeq(value, "/") {
+		if segment != strings.TrimSpace(segment) {
+			return fmt.Errorf("artifact name %q has untrimmed whitespace in a path segment", value)
+		}
+	}
+	return nil
+}
+
+// maxDisplayNameBytes bounds a human-readable label. It is generous for a name
+// plus an affiliation and small enough that a roster stays readable; without a
+// cap a single identity can inflate the signed definition and every log line
+// that mentions it.
+const maxDisplayNameBytes = 256
+
+// validateDisplayName checks a human-readable label that is never used for a
+// decision but is read by people reviewing a transcript.
+//
+// The ceremony's audit and release steps depend on humans reading these
+// records, so a label must render as the bytes that were signed. Length and
+// UTF-8 validity are not enough for that; see rejectDeceptiveRunes.
+func validateDisplayName(value string) error {
+	if value == "" || len(value) > maxDisplayNameBytes {
+		return fmt.Errorf("must contain 1 to %d bytes", maxDisplayNameBytes)
+	}
+	if !utf8.ValidString(value) {
+		return errors.New("must be valid UTF-8")
+	}
+	if value != strings.TrimSpace(value) {
+		return errors.New("must be trimmed")
+	}
+	if strings.TrimSpace(value) == "" {
+		return errors.New("must not be blank")
+	}
+	return rejectDeceptiveRunes(value)
+}
+
+// rejectDeceptiveRunes rejects characters that make a string render as
+// something other than the bytes that were signed.
+//
+// Three classes, all invisible:
+//
+//   - Control characters (Unicode Cc). ANSI escape sequences are terminal
+//     commands rather than text, so a value printed to a terminal can move the
+//     cursor and repaint what was already written.
+//   - Bidirectional formatting (U+202A-U+202E, U+2066-U+2069, U+200E, U+200F).
+//     These force rendering direction, so bytes stored as U+202E followed by
+//     "ecila" display as "alice". This is the Trojan Source technique,
+//     CVE-2021-42574.
+//   - Zero-width space (U+200B), which renders as nothing, so two values that
+//     differ in bytes can be indistinguishable on screen.
+//
+// unicode.IsControl is not sufficient on its own: it reports category Cc only,
+// while every bidi and zero-width character above is category Cf.
+//
+// The bidi and zero-width sets are listed explicitly rather than rejecting all
+// of category Cf, because U+200C (ZWNJ) is required for correct Persian and
+// Indic text and U+200D (ZWJ) joins emoji sequences. Banning the whole category
+// would make legitimate names unwritable.
+func rejectDeceptiveRunes(value string) error {
+	for _, r := range value {
+		switch {
+		case unicode.IsControl(r):
+			return fmt.Errorf("contains control character %U", r)
+		// Written as escapes on purpose: these characters are invisible, and
+		// two of them would reorder this source file in an editor.
+		case r >= '\u202A' && r <= '\u202E',
+			r >= '\u2066' && r <= '\u2069',
+			r == '\u200E', r == '\u200F':
+			return fmt.Errorf("contains bidirectional formatting character %U", r)
+		case r == '\u200B':
+			return fmt.Errorf("contains zero-width character %U", r)
+		}
 	}
 	return nil
 }

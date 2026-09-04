@@ -7,6 +7,21 @@ import (
 
 const ProductionMinimumWitnessLeadSeconds uint32 = 24 * 60 * 60
 
+// ProductionWitnessObservationWindowSeconds is the observation time a
+// production close must reserve for public witnesses on top of the signed
+// minimum witness lead.
+//
+// The signed minimum is measured from two different anchors: ValidateClose
+// measures roundTime-closedAt, while witness receipts measure
+// roundTime-observedAt with observedAt strictly after closedAt. A close at
+// exactly the signed minimum therefore leaves witnesses no time in which a
+// valid receipt can exist, and the mismatch surfaces only when the evidence
+// bundle is assembled at release, when the round is already pinned inside the
+// signed closure. Reserving an explicit window at close keeps the witness
+// requirement satisfiable. Rehearsals are exempt: their leads are minutes and
+// their witness receipts are same-host fixtures.
+const ProductionWitnessObservationWindowSeconds uint32 = 60 * 60
+
 type CeremonyDefinition struct {
 	Schema          string          `json:"schema"`
 	CeremonyID      string          `json:"ceremony_id"`
@@ -122,6 +137,20 @@ func (d CeremonyDefinition) validate(requireID bool) error {
 	switch d.Mode {
 	case ModeRehearsal:
 	case ModeProduction:
+		// The circuit registry accepts a tiny rehearsal circuit so the ceremony
+		// machinery can be exercised at a small domain. Production must never
+		// see it: a transcript at domain 2^16 proves nothing about a 2^21
+		// ceremony, and the exact-k21-rehearsal gate exists precisely so a
+		// smaller run cannot satisfy it. This is the only place that knows the
+		// mode, so it is the only place the restriction can live, and it is
+		// decided before any environment-dependent check so the failure is
+		// about the definition rather than the host.
+		if d.Circuit.KeyVersion != KeyVersionDestinationV2 {
+			return fmt.Errorf(
+				"production ceremony must use key_version %q, not %q",
+				KeyVersionDestinationV2, d.Circuit.KeyVersion,
+			)
+		}
 		if d.Software.SourceDirty {
 			return errors.New("production ceremony requires a clean source tree")
 		}
@@ -149,6 +178,11 @@ func (d CeremonyDefinition) validate(requireID bool) error {
 	if err := d.Circuit.Validate(); err != nil {
 		return fmt.Errorf("circuit: %w", err)
 	}
+	if d.Mode == ModeProduction {
+		if err := ValidateCanonicalDestinationV2(d.Circuit); err != nil {
+			return fmt.Errorf("circuit: %w", err)
+		}
+	}
 	if err := d.Software.Validate(); err != nil {
 		return fmt.Errorf("software: %w", err)
 	}
@@ -163,6 +197,9 @@ func (d CeremonyDefinition) validate(requireID bool) error {
 	}
 	if len(d.Auditors) < 2 {
 		return errors.New("at least two independent auditors are required")
+	}
+	if len(d.Auditors) > MaxAuditors {
+		return fmt.Errorf("auditors exceed maximum %d recordable in the final transcript", MaxAuditors)
 	}
 	identityIDs := map[string]string{
 		d.Coordinator.ID:   "coordinator",

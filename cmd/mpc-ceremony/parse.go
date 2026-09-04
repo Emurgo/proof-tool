@@ -16,6 +16,12 @@ import (
 
 const supportedKeyVersion = "ownership-destination-v2"
 
+// rehearsalKeyVersion selects the tiny circuit used to exercise the ceremony at
+// a small domain. It is accepted here only alongside --mode rehearsal; the
+// signed definition enforces the same rule independently, so this check is
+// convenience rather than the control.
+const rehearsalKeyVersion = "rehearsal-tiny-v1"
+
 type helpRequest struct {
 	topic []string
 }
@@ -61,6 +67,17 @@ func parseInvocation(args []string) (Invocation, error) {
 		options, err := parseInit(rest[1:])
 		invocation.Command, invocation.Options = CommandInit, options
 		return invocation, wrapCommandError(err, "init")
+	case "identity":
+		return parseIdentity(invocation, rest[1:])
+	case "rehearsal":
+		return parseRehearsal(invocation, rest[1:])
+	case "inspect":
+		if len(rest) > 1 && !strings.HasPrefix(rest[1], "-") {
+			return parseInspectSubcommand(invocation, rest[1:])
+		}
+		options, err := parseInspect(rest[1:])
+		invocation.Command, invocation.Options = CommandInspect, options
+		return invocation, wrapCommandError(err, "inspect")
 	case "phase1":
 		return parsePhase1(invocation, rest[1:])
 	case "phase2":
@@ -82,6 +99,201 @@ func parseInvocation(args []string) (Invocation, error) {
 			message: fmt.Sprintf("unknown command %q", rest[0]),
 		}
 	}
+}
+
+func parseIdentity(invocation Invocation, args []string) (Invocation, error) {
+	if len(args) == 0 {
+		return Invocation{}, &usageError{message: "missing identity command", topic: []string{"identity"}}
+	}
+	if args[0] == "help" {
+		return Invocation{}, &helpRequest{topic: append([]string{"identity"}, args[1:]...)}
+	}
+	switch args[0] {
+	case "generate":
+		options, err := parseIdentityGenerate(args[1:])
+		invocation.Command, invocation.Options = CommandIdentityGenerate, options
+		return invocation, wrapCommandError(err, "identity", "generate")
+	default:
+		return Invocation{}, &usageError{
+			message: fmt.Sprintf("unknown identity command %q", args[0]),
+			topic:   []string{"identity"},
+		}
+	}
+}
+
+func parseIdentityGenerate(args []string) (IdentityGenerateOptions, error) {
+	var options IdentityGenerateOptions
+	fs := commandFlagSet("identity generate")
+	fs.StringVar(&options.IdentityID, "identity-id", "", "stable ceremony role identity")
+	fs.StringVar(&options.DisplayName, "display-name", "", "human-readable identity name")
+	fs.StringVar(&options.PrivateKeyOut, "private-key-out", "", "fresh secret Ed25519 seed file")
+	fs.StringVar(&options.PublicIdentityOut, "public-identity-out", "", "fresh public identity JSON file")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	if err := requireValues(
+		value("--identity-id", options.IdentityID),
+		value("--display-name", options.DisplayName),
+		pathValue("--private-key-out", options.PrivateKeyOut),
+		pathValue("--public-identity-out", options.PublicIdentityOut),
+	); err != nil {
+		return options, err
+	}
+	return options, nil
+}
+
+func parseRehearsal(invocation Invocation, args []string) (Invocation, error) {
+	if len(args) == 0 {
+		return Invocation{}, &usageError{message: "missing rehearsal command", topic: []string{"rehearsal"}}
+	}
+	if args[0] == "help" {
+		return Invocation{}, &helpRequest{topic: append([]string{"rehearsal"}, args[1:]...)}
+	}
+	switch args[0] {
+	case "init":
+		options, err := parseRehearsalInit(args[1:])
+		invocation.Command, invocation.Options = CommandRehearsalInit, options
+		return invocation, wrapCommandError(err, "rehearsal", "init")
+	default:
+		return Invocation{}, &usageError{
+			message: fmt.Sprintf("unknown rehearsal command %q", args[0]),
+			topic:   []string{"rehearsal"},
+		}
+	}
+}
+
+func parseRehearsalInit(args []string) (RehearsalInitOptions, error) {
+	var options RehearsalInitOptions
+	fs := commandFlagSet("rehearsal init")
+	fs.StringVar(&options.CreatedAt, "created-at", "", "ceremony creation timestamp in RFC3339")
+	fs.StringVar(&options.OutDir, "out-dir", "", "fresh rehearsal work directory")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		value("--created-at", options.CreatedAt),
+		pathValue("--out-dir", options.OutDir),
+	)
+}
+
+func parseInspectSubcommand(invocation Invocation, args []string) (Invocation, error) {
+	if len(args) == 0 {
+		return Invocation{}, &usageError{message: "missing inspect command", topic: []string{"inspect"}}
+	}
+	if args[0] == "help" {
+		return Invocation{}, &helpRequest{topic: append([]string{"inspect"}, args[1:]...)}
+	}
+	switch args[0] {
+	case "definition":
+		options, err := parseInspectDefinition(args[1:])
+		invocation.Command, invocation.Options = CommandInspectDefinition, options
+		return invocation, wrapCommandError(err, "inspect", "definition")
+	case "chain":
+		options, err := parseInspectChain(args[1:])
+		invocation.Command, invocation.Options = CommandInspectChain, options
+		return invocation, wrapCommandError(err, "inspect", "chain")
+	case "participant":
+		options, err := parseInspectParticipant(args[1:])
+		invocation.Command, invocation.Options = CommandInspectParticipant, options
+		return invocation, wrapCommandError(err, "inspect", "participant")
+	case "enrollment":
+		options, err := parseInspectEnrollment(args[1:])
+		invocation.Command, invocation.Options = CommandInspectEnrollment, options
+		return invocation, wrapCommandError(err, "inspect", "enrollment")
+	default:
+		return Invocation{}, &usageError{
+			message: fmt.Sprintf("unknown inspect command %q", args[0]),
+			topic:   []string{"inspect"},
+		}
+	}
+}
+
+func parseInspectParticipant(args []string) (InspectParticipantOptions, error) {
+	var options InspectParticipantOptions
+	fs := commandFlagSet("inspect participant")
+	addCeremonyTrustFlags(
+		fs,
+		&options.CeremonyPath,
+		&options.CeremonySignaturePath,
+		&options.CoordinatorPublicKeyFile,
+	)
+	fs.StringVar(&options.ParticipantSigningKey, "participant-signing-key", "", "existing participant Ed25519 private key")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		pathValue("--ceremony", options.CeremonyPath),
+		pathValue("--ceremony-signature", options.CeremonySignaturePath),
+		pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile),
+		pathValue("--participant-signing-key", options.ParticipantSigningKey),
+	)
+}
+
+func parseInspectEnrollment(args []string) (InspectEnrollmentOptions, error) {
+	var options InspectEnrollmentOptions
+	fs := commandFlagSet("inspect enrollment")
+	addCeremonyTrustFlags(
+		fs,
+		&options.CeremonyPath,
+		&options.CeremonySignaturePath,
+		&options.CoordinatorPublicKeyFile,
+	)
+	fs.StringVar(&options.EnrollmentPath, "enrollment", "", "canonical operational enrollment record")
+	fs.StringVar(&options.EnrollmentSignaturePath, "enrollment-signature", "", "detached proof-of-possession signature")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		pathValue("--ceremony", options.CeremonyPath),
+		pathValue("--ceremony-signature", options.CeremonySignaturePath),
+		pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile),
+		pathValue("--enrollment", options.EnrollmentPath),
+		pathValue("--enrollment-signature", options.EnrollmentSignaturePath),
+	)
+}
+
+func parseInspectDefinition(args []string) (InspectDefinitionOptions, error) {
+	var options InspectDefinitionOptions
+	fs := commandFlagSet("inspect definition")
+	addCeremonyTrustFlags(
+		fs,
+		&options.CeremonyPath,
+		&options.CeremonySignaturePath,
+		&options.CoordinatorPublicKeyFile,
+	)
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		pathValue("--ceremony", options.CeremonyPath),
+		pathValue("--ceremony-signature", options.CeremonySignaturePath),
+		pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile),
+	)
+}
+
+func parseInspectChain(args []string) (InspectChainOptions, error) {
+	var options InspectChainOptions
+	fs := commandFlagSet("inspect chain")
+	addCeremonyTrustFlags(
+		fs,
+		&options.CeremonyPath,
+		&options.CeremonySignaturePath,
+		&options.CoordinatorPublicKeyFile,
+	)
+	fs.StringVar(&options.TranscriptRoot, "transcript-root", "", "local transcript root")
+	fs.StringVar(&options.ChainPath, "chain", "", "explicit accepted chain JSON path")
+	fs.StringVar(&options.ChainSignaturePath, "chain-signature", "", "detached accepted chain signature path")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		pathValue("--ceremony", options.CeremonyPath),
+		pathValue("--ceremony-signature", options.CeremonySignaturePath),
+		pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile),
+		pathValue("--transcript-root", options.TranscriptRoot),
+		pathValue("--chain", options.ChainPath),
+		pathValue("--chain-signature", options.ChainSignaturePath),
+	)
 }
 
 func parseDecision(invocation Invocation, args []string) (Invocation, error) {
@@ -212,6 +424,14 @@ func parseOps(invocation Invocation, args []string) (Invocation, error) {
 		return Invocation{}, &helpRequest{topic: append([]string{"ops"}, args[1:]...)}
 	}
 	switch args[0] {
+	case "prepare-public-witness-receipt":
+		options, err := parseOpsPreparePublicWitnessReceipt(args[1:])
+		invocation.Command, invocation.Options = CommandOpsPreparePublicWitnessReceipt, options
+		return invocation, wrapCommandError(err, "ops", "prepare-public-witness-receipt")
+	case "prepare-mirror-receipt":
+		options, err := parseOpsPrepareMirrorReceipt(args[1:])
+		invocation.Command, invocation.Options = CommandOpsPrepareMirrorReceipt, options
+		return invocation, wrapCommandError(err, "ops", "prepare-mirror-receipt")
 	case "export-signing":
 		options, err := parseOpsExportSigning(args[1:])
 		invocation.Command, invocation.Options = CommandOpsExportSigning, options
@@ -230,6 +450,64 @@ func parseOps(invocation Invocation, args []string) (Invocation, error) {
 			topic:   []string{"ops"},
 		}
 	}
+}
+
+func parseOpsPreparePublicWitnessReceipt(args []string) (OpsPreparePublicWitnessReceiptOptions, error) {
+	var options OpsPreparePublicWitnessReceiptOptions
+	fs := commandFlagSet("ops prepare-public-witness-receipt")
+	addCeremonyTrustFlags(fs, &options.CeremonyPath, &options.CeremonySignaturePath, &options.CoordinatorPublicKeyFile)
+	fs.StringVar(&options.TranscriptRoot, "transcript-root", "", "local root containing the signed closure")
+	fs.StringVar(&options.ClosurePath, "closure", "", "exact coordinator-signed closure record")
+	fs.StringVar(&options.ClosureSignaturePath, "closure-signature", "", "detached coordinator signature for the closure")
+	fs.StringVar(&options.WitnessEnrollmentPath, "witness-enrollment", "", "canonical public-witness proof-of-possession enrollment")
+	fs.StringVar(&options.WitnessEnrollmentSignaturePath, "witness-enrollment-signature", "", "detached witness enrollment signature")
+	fs.StringVar(&options.PublicationLocation, "publication-location", "", "human-observed publication URI; only its SHA-256 is recorded")
+	fs.StringVar(&options.ObservedAt, "observed-at", "", "human-claimed observation time in RFC3339 UTC")
+	fs.StringVar(&options.OutDir, "out-dir", "", "fresh directory for canonical receipt and signing request")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		pathValue("--ceremony", options.CeremonyPath),
+		pathValue("--ceremony-signature", options.CeremonySignaturePath),
+		pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile),
+		pathValue("--transcript-root", options.TranscriptRoot),
+		pathValue("--closure", options.ClosurePath),
+		pathValue("--closure-signature", options.ClosureSignaturePath),
+		pathValue("--witness-enrollment", options.WitnessEnrollmentPath),
+		pathValue("--witness-enrollment-signature", options.WitnessEnrollmentSignaturePath),
+		value("--publication-location", options.PublicationLocation),
+		value("--observed-at", options.ObservedAt),
+		pathValue("--out-dir", options.OutDir),
+	)
+}
+
+func parseOpsPrepareMirrorReceipt(args []string) (OpsPrepareMirrorReceiptOptions, error) {
+	var options OpsPrepareMirrorReceiptOptions
+	fs := commandFlagSet("ops prepare-mirror-receipt")
+	fs.StringVar(&options.DraftPath, "draft", "", "human-reviewable mirror receipt draft from relay")
+	addCeremonyTrustFlags(fs, &options.CeremonyPath, &options.CeremonySignaturePath, &options.CoordinatorPublicKeyFile)
+	fs.StringVar(&options.TranscriptRoot, "transcript-root", "", "local root containing the accepted chain prefix")
+	fs.StringVar(&options.ChainPath, "chain", "", "exact coordinator-signed accepted chain prefix")
+	fs.StringVar(&options.ChainSignaturePath, "chain-signature", "", "detached coordinator signature for the chain prefix")
+	fs.StringVar(&options.MirrorEnrollmentPath, "mirror-enrollment", "", "canonical mirror-operator proof-of-possession enrollment")
+	fs.StringVar(&options.MirrorEnrollmentSignaturePath, "mirror-enrollment-signature", "", "detached mirror enrollment signature")
+	fs.StringVar(&options.OutDir, "out-dir", "", "fresh directory for canonical receipt and signing request")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		pathValue("--draft", options.DraftPath),
+		pathValue("--ceremony", options.CeremonyPath),
+		pathValue("--ceremony-signature", options.CeremonySignaturePath),
+		pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile),
+		pathValue("--transcript-root", options.TranscriptRoot),
+		pathValue("--chain", options.ChainPath),
+		pathValue("--chain-signature", options.ChainSignaturePath),
+		pathValue("--mirror-enrollment", options.MirrorEnrollmentPath),
+		pathValue("--mirror-enrollment-signature", options.MirrorEnrollmentSignaturePath),
+		pathValue("--out-dir", options.OutDir),
+	)
 }
 
 func parseOpsExportSigning(args []string) (OpsExportSigningOptions, error) {
@@ -412,7 +690,7 @@ func parseInit(args []string) (InitOptions, error) {
 	fs := commandFlagSet("init")
 	fs.StringVar(&options.SessionNonceHex, "session-nonce-hex", "", "optional 32-byte session nonce as hex; generated securely when omitted")
 	fs.StringVar(&options.CreatedAt, "created-at", "", "ceremony creation timestamp in RFC3339")
-	fs.StringVar(&options.KeyVersion, "key-version", "", "repository key version (ownership-destination-v2 only)")
+	fs.StringVar(&options.KeyVersion, "key-version", "", "repository key version (ownership-destination-v2, or rehearsal-tiny-v1 with --mode rehearsal)")
 	fs.StringVar(&options.ParticipantsPath, "participants", "", "participant roster JSON path")
 	fs.StringVar(&options.PolicyPath, "policy", "", "ceremony policy JSON path")
 	fs.StringVar(&options.CoordinatorKeyID, "coordinator-key-id", "", "coordinator signing key identifier")
@@ -425,8 +703,16 @@ func parseInit(args []string) (InitOptions, error) {
 	if options.Mode != "rehearsal" && options.Mode != "production" {
 		return options, errors.New("--mode must be rehearsal or production")
 	}
-	if options.KeyVersion != "" && options.KeyVersion != supportedKeyVersion {
-		return options, fmt.Errorf("--key-version must be %q", supportedKeyVersion)
+	switch options.KeyVersion {
+	case "", supportedKeyVersion:
+	case rehearsalKeyVersion:
+		if options.Mode != "rehearsal" {
+			return options, fmt.Errorf(
+				"--key-version %q requires --mode rehearsal", rehearsalKeyVersion)
+		}
+	default:
+		return options, fmt.Errorf(
+			"--key-version must be %q or %q", supportedKeyVersion, rehearsalKeyVersion)
 	}
 	if options.SessionNonceHex != "" {
 		raw, err := hex.DecodeString(options.SessionNonceHex)
@@ -560,6 +846,8 @@ func parseClose(name string, args []string, phase2 bool) (CloseOptions, error) {
 	fs.StringVar(&options.ChainSignaturePath, "chain-signature", "", "detached final accepted chain signature path")
 	fs.StringVar(&options.CoordinatorSigningKey, "coordinator-signing-key", "", "existing Ed25519 coordinator private key path")
 	fs.Uint64Var(&options.BeaconRound, "beacon-round", 0, "precommitted future beacon round")
+	fs.UintVar(&options.BeaconRoundLeadSeconds, "beacon-round-lead", 0,
+		"derive the beacon round this many seconds past the clock sampled after replay")
 	if err := parseFlags(fs, args); err != nil {
 		return options, err
 	}
@@ -572,8 +860,12 @@ func parseClose(name string, args []string, phase2 bool) (CloseOptions, error) {
 		pathValue("--chain-signature", options.ChainSignaturePath),
 		pathValue("--coordinator-signing-key", options.CoordinatorSigningKey),
 	}
-	if options.BeaconRound == 0 {
-		required = append(required, requiredValue{name: "--beacon-round"})
+	// A close replays for hours at K=21 before it stamps closed_at, so naming
+	// the round up front asks the operator to predict their own replay time.
+	// --beacon-round-lead derives it from the clock sampled after the replay.
+	if (options.BeaconRound == 0) == (options.BeaconRoundLeadSeconds == 0) {
+		return options, errors.New(
+			"exactly one of --beacon-round and --beacon-round-lead is required")
 	}
 	if phase2 {
 		required = append(
@@ -867,6 +1159,9 @@ func validateAuditArtifacts(reports, signatures []string) error {
 	if len(reports) < 2 {
 		return errors.New("--audit-report must be supplied at least twice for independent audits")
 	}
+	if len(reports) > mpcceremony.MaxAuditors {
+		return fmt.Errorf("--audit-report supplied %d times, exceeds maximum %d recordable in the final transcript", len(reports), mpcceremony.MaxAuditors)
+	}
 	if len(reports) != len(signatures) {
 		return errors.New("--audit-report and --audit-signature counts must match")
 	}
@@ -972,4 +1267,21 @@ func (s *stringList) Set(value string) error {
 	}
 	*s = append(*s, value)
 	return nil
+}
+
+func parseInspect(args []string) (InspectOptions, error) {
+	var options InspectOptions
+	fs := commandFlagSet("inspect")
+	addCeremonyTrustFlags(fs, &options.CeremonyPath, &options.CeremonySignaturePath, &options.CoordinatorPublicKeyFile)
+	fs.StringVar(&options.TranscriptDir, "transcript-dir", "", "ceremony transcript root directory")
+	fs.BoolVar(&options.Full, "full", false, "re-verify every chain record and artifact digest instead of metadata only")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		pathValue("--ceremony", options.CeremonyPath),
+		pathValue("--ceremony-signature", options.CeremonySignaturePath),
+		pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile),
+		pathValue("--transcript-dir", options.TranscriptDir),
+	)
 }

@@ -31,6 +31,12 @@ func (workflowExecutor) Execute(ctx context.Context, invocation Invocation) (Com
 	switch invocation.Command {
 	case CommandInit:
 		return executeInit(invocation.Options.(InitOptions))
+	case CommandIdentityGenerate:
+		return executeIdentityGenerate(invocation.Options.(IdentityGenerateOptions))
+	case CommandRehearsalInit:
+		return executeRehearsalInit(invocation.Options.(RehearsalInitOptions))
+	case CommandInspect:
+		return executeInspect(invocation.Options.(InspectOptions))
 	case CommandPhase1Contribute:
 		return executeContribution(mpcceremony.Phase1, invocation.Options.(ContributeOptions))
 	case CommandPhase1Erasure:
@@ -65,6 +71,10 @@ func (workflowExecutor) Execute(ctx context.Context, invocation Invocation) (Com
 		return executeReleaseSign(invocation.Options.(ReleaseSignOptions))
 	case CommandReleaseVerify:
 		return executeReleaseVerify(invocation.Options.(ReleaseVerifyOptions))
+	case CommandOpsPreparePublicWitnessReceipt:
+		return executeOpsPreparePublicWitnessReceipt(invocation.Options.(OpsPreparePublicWitnessReceiptOptions))
+	case CommandOpsPrepareMirrorReceipt:
+		return executeOpsPrepareMirrorReceipt(invocation.Options.(OpsPrepareMirrorReceiptOptions))
 	case CommandOpsExportSigning:
 		return executeOpsExportSigning(invocation.Options.(OpsExportSigningOptions))
 	case CommandOpsImportSig:
@@ -77,6 +87,14 @@ func (workflowExecutor) Execute(ctx context.Context, invocation Invocation) (Com
 		return executeDecisionSign(invocation.Options.(DecisionSignOptions))
 	case CommandDecisionVerify:
 		return executeDecisionVerify(invocation.Options.(DecisionVerifyOptions))
+	case CommandInspectDefinition:
+		return executeInspectDefinition(invocation.Options.(InspectDefinitionOptions))
+	case CommandInspectChain:
+		return executeInspectChain(invocation.Options.(InspectChainOptions))
+	case CommandInspectParticipant:
+		return executeInspectParticipant(invocation.Options.(InspectParticipantOptions))
+	case CommandInspectEnrollment:
+		return executeInspectEnrollment(invocation.Options.(InspectEnrollmentOptions))
 	default:
 		return CommandResult{}, fmt.Errorf("%w: %s", errExecutorNotWired, invocation.Command)
 	}
@@ -106,9 +124,17 @@ func executeInit(options InitOptions) (CommandResult, error) {
 	if err != nil {
 		return CommandResult{}, err
 	}
-	circuit, err := mpcceremony.CompileDestinationV2()
+	circuit, err := mpcceremony.CompileForKeyVersion(options.KeyVersion)
 	if err != nil {
 		return CommandResult{}, err
+	}
+	if options.Mode == mpcceremony.ModeProduction {
+		// Fail before allocating and writing the large Phase 1 genesis. The same
+		// invariant is also enforced by CeremonyDefinition validation so no
+		// consumer can bypass it by creating or loading a definition elsewhere.
+		if err := mpcceremony.ValidateCanonicalDestinationV2(circuit.Binding); err != nil {
+			return CommandResult{}, err
+		}
 	}
 	result, err := mpcceremony.InitializeCeremonyFiles(mpcceremony.InitFilesOptions{
 		RootDir: options.OutDir,
@@ -297,6 +323,7 @@ func executeClose(phase mpcceremony.Phase, options CloseOptions) (CommandResult,
 		Phase1SealSignaturePath:   options.Phase1SealSignaturePath,
 		CoordinatorPrivateKeyPath: options.CoordinatorSigningKey,
 		BeaconRound:               options.BeaconRound,
+		BeaconRoundLeadSeconds:    uint32(options.BeaconRoundLeadSeconds),
 	})
 	if err != nil {
 		return CommandResult{}, err
@@ -371,6 +398,7 @@ func executePhase1Seal(options Phase1SealOptions) (CommandResult, error) {
 		BeaconSignaturePath:       options.BeaconSignaturePath,
 		CoordinatorPrivateKeyPath: options.CoordinatorSigningKey,
 		OutputDir:                 options.OutDir,
+		Progress:                  replayProgressReporter(),
 	})
 	if err != nil {
 		return CommandResult{}, err
@@ -408,6 +436,7 @@ func executePhase2Init(options Phase2InitOptions) (CommandResult, error) {
 		Phase1SealSignaturePath:   options.Phase1SealSignaturePath,
 		CoordinatorPrivateKeyPath: options.CoordinatorSigningKey,
 		OutputDir:                 options.OutDir,
+		Progress:                  stageProgressReporter(),
 	})
 	if err != nil {
 		return CommandResult{}, err
@@ -437,7 +466,7 @@ func executeFinalize(options FinalizeOptions) (CommandResult, error) {
 	if err != nil {
 		return CommandResult{}, err
 	}
-	circuit, err := mpcceremony.CompileDestinationV2()
+	circuit, err := compileCircuitForCeremony(trust)
 	if err != nil {
 		return CommandResult{}, err
 	}
@@ -486,7 +515,7 @@ func executePrepareFinalization(options PrepareFinalizationOptions) (CommandResu
 	if err != nil {
 		return CommandResult{}, err
 	}
-	circuit, err := mpcceremony.CompileDestinationV2()
+	circuit, err := compileCircuitForCeremony(trust)
 	if err != nil {
 		return CommandResult{}, err
 	}
@@ -531,7 +560,7 @@ func executeAudit(options AuditOptions) (CommandResult, error) {
 	if err != nil {
 		return CommandResult{}, err
 	}
-	circuit, err := mpcceremony.CompileDestinationV2()
+	circuit, err := compileCircuitForCeremony(trust)
 	if err != nil {
 		return CommandResult{}, err
 	}
@@ -672,6 +701,37 @@ func transcriptPaths(root, chain, signature string) mpcceremony.PhaseTranscriptP
 		RootDir:            root,
 		ChainPath:          chain,
 		ChainSignaturePath: signature,
+		Progress:           replayProgressReporter(),
+	}
+}
+
+// replayProgressReporter renders replay progress to stderr. A K=21 replay runs
+// for hours; without this an operator cannot tell running from hung, and cannot
+// measure how long a close takes in order to choose a beacon round far enough
+// ahead. Output goes to stderr because stdout carries the result contract, and
+// it reports only a phase, an index and a count — never a path or key material.
+func replayProgressReporter() mpcceremony.ReplayProgress {
+	start := time.Now()
+	return func(phase mpcceremony.Phase, index, total int) {
+		fmt.Fprintf(
+			os.Stderr,
+			"replaying %s contribution %d/%d (%s elapsed)\n",
+			phase, index, total, time.Since(start).Round(time.Second),
+		)
+	}
+}
+
+// stageProgressReporter renders stage entry to stderr. Phase 2 initialization
+// has no contributions to count and its expensive stage is a single call into
+// gnark, so naming the running stage is the honest signal available.
+func stageProgressReporter() mpcceremony.StageProgress {
+	start := time.Now()
+	return func(stage string, index, total int) {
+		fmt.Fprintf(
+			os.Stderr,
+			"stage %d/%d: %s (%s elapsed)\n",
+			index, total, stage, time.Since(start).Round(time.Second),
+		)
 	}
 }
 
@@ -789,4 +849,78 @@ func loadOperationalCircuit(paths mpcceremony.TrustPaths, transcriptRoot string)
 	}
 	r1csPath := filepath.Join(transcriptRoot, filepath.FromSlash(trusted.Definition.Circuit.R1CS.Name))
 	return mpcceremony.ReadR1CSFile(r1csPath, trusted.Definition.Circuit)
+}
+
+func executeInspect(options InspectOptions) (CommandResult, error) {
+	result, err := mpcceremony.InspectCeremony(mpcceremony.InspectCeremonyOptions{
+		Trust: trustPaths(
+			options.CeremonyPath,
+			options.CeremonySignaturePath,
+			options.CoordinatorPublicKeyFile,
+		),
+		TranscriptRoot: options.TranscriptDir,
+		Full:           options.Full,
+	})
+	if err != nil {
+		return CommandResult{}, err
+	}
+	outputs := map[string]string{
+		"mode":  result.Mode,
+		"depth": result.Depth,
+	}
+	for _, phase := range result.Phases {
+		prefix := string(phase.Phase)
+		if !phase.Started {
+			outputs[prefix+"_status"] = "not started"
+			continue
+		}
+		status := "accepting contributions"
+		switch {
+		case phase.Sealed:
+			status = "sealed"
+		case phase.BeaconRecorded:
+			status = "beacon recorded"
+		case phase.Closed:
+			status = "closed"
+		case phase.ContributionsComplete:
+			status = "contributions complete"
+		}
+		outputs[prefix+"_status"] = status
+		outputs[prefix+"_chain"] = phase.ChainFile
+		outputs[prefix+"_accepted"] = fmt.Sprintf("%d of %d scheduled", phase.AcceptedCount, phase.ScheduledTotal)
+		outputs[prefix+"_head_record_id"] = phase.HeadRecordID
+		outputs[prefix+"_head_payload"] = phase.HeadPayload
+		if phase.NextParticipantID != "" {
+			outputs[prefix+"_next_contribution"] = fmt.Sprintf(
+				"index %d by %s", phase.NextIndex, phase.NextParticipantID,
+			)
+		}
+		if len(phase.MissingArtifacts) == 0 {
+			outputs[prefix+"_artifacts"] = "all referenced artifacts present"
+		} else {
+			outputs[prefix+"_artifacts"] = "MISSING: " + strings.Join(phase.MissingArtifacts, "; ")
+		}
+	}
+	return CommandResult{
+		CeremonyID: result.CeremonyID,
+		Summary: fmt.Sprintf(
+			"inspected ceremony at %s depth; inspection is read-only and authorizes nothing",
+			result.Depth,
+		),
+		Outputs: outputs,
+	}, nil
+}
+
+// compileCircuitForCeremony compiles the circuit the signed definition names.
+//
+// The key version comes from the definition rather than a flag, so an operator
+// cannot select a different circuit than the ceremony was created with. An
+// unknown or mismatched version fails in CompileForKeyVersion, and the compiled
+// binding is compared against the definition again before anything is accepted.
+func compileCircuitForCeremony(trust mpcceremony.TrustPaths) (*mpcceremony.CompiledCircuit, error) {
+	trusted, err := mpcceremony.LoadSignedDefinition(trust)
+	if err != nil {
+		return nil, err
+	}
+	return mpcceremony.CompileForKeyVersion(trusted.Definition.Circuit.KeyVersion)
 }
