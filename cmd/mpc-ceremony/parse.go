@@ -67,6 +67,8 @@ func parseInvocation(args []string) (Invocation, error) {
 		options, err := parseInit(rest[1:])
 		invocation.Command, invocation.Options = CommandInit, options
 		return invocation, wrapCommandError(err, "init")
+	case "identity":
+		return parseIdentity(invocation, rest[1:])
 	case "rehearsal":
 		return parseRehearsal(invocation, rest[1:])
 	case "inspect":
@@ -97,6 +99,47 @@ func parseInvocation(args []string) (Invocation, error) {
 			message: fmt.Sprintf("unknown command %q", rest[0]),
 		}
 	}
+}
+
+func parseIdentity(invocation Invocation, args []string) (Invocation, error) {
+	if len(args) == 0 {
+		return Invocation{}, &usageError{message: "missing identity command", topic: []string{"identity"}}
+	}
+	if args[0] == "help" {
+		return Invocation{}, &helpRequest{topic: append([]string{"identity"}, args[1:]...)}
+	}
+	switch args[0] {
+	case "generate":
+		options, err := parseIdentityGenerate(args[1:])
+		invocation.Command, invocation.Options = CommandIdentityGenerate, options
+		return invocation, wrapCommandError(err, "identity", "generate")
+	default:
+		return Invocation{}, &usageError{
+			message: fmt.Sprintf("unknown identity command %q", args[0]),
+			topic:   []string{"identity"},
+		}
+	}
+}
+
+func parseIdentityGenerate(args []string) (IdentityGenerateOptions, error) {
+	var options IdentityGenerateOptions
+	fs := commandFlagSet("identity generate")
+	fs.StringVar(&options.IdentityID, "identity-id", "", "stable ceremony role identity")
+	fs.StringVar(&options.DisplayName, "display-name", "", "human-readable identity name")
+	fs.StringVar(&options.PrivateKeyOut, "private-key-out", "", "fresh secret Ed25519 seed file")
+	fs.StringVar(&options.PublicIdentityOut, "public-identity-out", "", "fresh public identity JSON file")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	if err := requireValues(
+		value("--identity-id", options.IdentityID),
+		value("--display-name", options.DisplayName),
+		pathValue("--private-key-out", options.PrivateKeyOut),
+		pathValue("--public-identity-out", options.PublicIdentityOut),
+	); err != nil {
+		return options, err
+	}
+	return options, nil
 }
 
 func parseRehearsal(invocation Invocation, args []string) (Invocation, error) {

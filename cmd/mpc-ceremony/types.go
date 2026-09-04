@@ -16,6 +16,7 @@ type Command string
 
 const (
 	CommandInit                           Command = "init"
+	CommandIdentityGenerate               Command = "identity generate"
 	CommandRehearsalInit                  Command = "rehearsal init"
 	CommandInspect                        Command = "inspect"
 	CommandPhase1Contribute               Command = "phase1 contribute"
@@ -58,6 +59,13 @@ type Invocation struct {
 	Global  GlobalOptions
 	Command Command
 	Options any
+}
+
+type IdentityGenerateOptions struct {
+	IdentityID        string
+	DisplayName       string
+	PrivateKeyOut     string
+	PublicIdentityOut string
 }
 
 type InitOptions struct {
@@ -419,6 +427,7 @@ type CommandResult struct {
 	SourceTagObjectSHA256      string                 `json:"source_tag_object_sha256,omitempty"`
 	Outputs                    map[string]string      `json:"outputs,omitempty"`
 	Summary                    string                 `json:"summary,omitempty"`
+	Identity                   *mpcceremony.Identity  `json:"identity,omitempty"`
 	DefinitionInspection       *DefinitionInspection  `json:"definition_inspection,omitempty"`
 	ChainInspection            *ChainInspection       `json:"chain_inspection,omitempty"`
 	ParticipantInspection      *ParticipantInspection `json:"participant_inspection,omitempty"`

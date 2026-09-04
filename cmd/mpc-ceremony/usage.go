@@ -23,13 +23,15 @@ const rootHelp = `Usage:
   mpc-ceremony [--format human|json] [--quiet] <command> [flags]
 
 Offline, append-only orchestration for this repository's BLS12-381 Groth16
-multi-party setup. Production commands accept operator-supplied artifacts and
-signing keys only; the explicitly rehearsal-only initializer creates same-host
-test identities. The binary performs no network access and never selects a
-mutable "latest" artifact.
+multi-party setup. Identity generation is the only production command that
+creates a signing key; all operational commands accept an existing local key.
+The explicitly rehearsal-only initializer creates same-host test identities.
+The binary performs no network access and never selects a mutable "latest"
+artifact.
 
 Commands:
   init                 Bind a ceremony to the compiled repository circuit
+  identity generate    Create a local Ed25519 key and public identity document
   rehearsal init       Create and initialize a three-party tiny rehearsal
   inspect              Report chain state and next scheduled contribution
   phase1 contribute    Verify the full phase 1 chain and contribute
@@ -108,6 +110,28 @@ second path list.
 `
 
 var commandHelp = map[string]string{
+	"identity": `Usage:
+  mpc-ceremony identity generate --identity-id ID --display-name NAME \
+    --private-key-out FRESH_SECRET_FILE \
+    --public-identity-out FRESH_PUBLIC_FILE
+
+Generate an Ed25519 ceremony signing identity from operating-system CSPRNG
+entropy. Run "mpc-ceremony help identity generate" for handling rules.
+`,
+	"identity generate": `Usage:
+  mpc-ceremony identity generate --identity-id ID --display-name NAME \
+    --private-key-out FRESH_SECRET_FILE \
+    --public-identity-out FRESH_PUBLIC_FILE
+
+Generates a new Ed25519 key using the operating-system CSPRNG. The private
+output is a proof-tool-compatible hex seed created with mode 0600; keep it on
+the trusted machine and never send it to Relay or the coordinator. The public
+output is canonical identity JSON containing the public key, its SHA-256
+fingerprint, and an automatically derived key ID. Share only that public file.
+
+Both parent directories must already exist, both output paths must be distinct,
+and neither output may already exist. Private key bytes are never printed.
+`,
 	"rehearsal": `Usage:
   mpc-ceremony rehearsal init --created-at RFC3339 --out-dir FRESH_DIR
 

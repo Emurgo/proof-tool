@@ -17,6 +17,8 @@ func TestParticipantCLIHelpHasExplicitSafeFlagAllowlist(t *testing.T) {
 	topics := [][]string{
 		nil,
 		{"init"},
+		{"identity"},
+		{"identity", "generate"},
 		{"rehearsal"},
 		{"rehearsal", "init"},
 		{"phase1"},
@@ -118,6 +120,7 @@ func TestParticipantCLIHelpHasExplicitSafeFlagAllowlist(t *testing.T) {
 		"--closure",
 		"--created-at",
 		"--destroyed-at",
+		"--display-name",
 		"--decision",
 		"--draft",
 		"--enrollment",
@@ -130,6 +133,7 @@ func TestParticipantCLIHelpHasExplicitSafeFlagAllowlist(t *testing.T) {
 		"--finalized-at",
 		"--format",
 		"--full",
+		"--identity-id",
 		"--key-version",
 		"--keys-dir",
 		"--manifest-public-key-file",
@@ -145,6 +149,7 @@ func TestParticipantCLIHelpHasExplicitSafeFlagAllowlist(t *testing.T) {
 		"--prepared-at",
 		"--publication-location",
 		"--public-evidence",
+		"--public-identity-out",
 		"--participants",
 		"--phase1-beacon",
 		"--phase1-beacon-signature",
@@ -162,6 +167,7 @@ func TestParticipantCLIHelpHasExplicitSafeFlagAllowlist(t *testing.T) {
 		"--phase2-close",
 		"--phase2-close-signature",
 		"--policy",
+		"--private-key-out",
 		"--quiet",
 		"--raw-response",
 		"--release-dir",
@@ -235,6 +241,7 @@ func TestFinalizationAuditAndReleaseCommandsAreWired(t *testing.T) {
 func TestEveryCommandRejectsWalletAndWitnessSecretInputs(t *testing.T) {
 	commands := [][]string{
 		{"init"},
+		{"identity", "generate"},
 		{"phase1", "contribute"},
 		{"phase1", "attest-erasure"},
 		{"phase1", "verify"},

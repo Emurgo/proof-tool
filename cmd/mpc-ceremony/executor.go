@@ -31,6 +31,8 @@ func (workflowExecutor) Execute(ctx context.Context, invocation Invocation) (Com
 	switch invocation.Command {
 	case CommandInit:
 		return executeInit(invocation.Options.(InitOptions))
+	case CommandIdentityGenerate:
+		return executeIdentityGenerate(invocation.Options.(IdentityGenerateOptions))
 	case CommandRehearsalInit:
 		return executeRehearsalInit(invocation.Options.(RehearsalInitOptions))
 	case CommandInspect:

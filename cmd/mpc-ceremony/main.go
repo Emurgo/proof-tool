@@ -79,6 +79,18 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer, execut
 			return 6
 		}
 	}
+	if result.Identity != nil {
+		if _, err := fmt.Fprintf(
+			stdout,
+			"identity_id: %s\nkey_id: %s\npublic_key_fingerprint: %s\n",
+			result.Identity.ID,
+			result.Identity.KeyID,
+			result.Identity.PublicKeyFingerprint,
+		); err != nil {
+			writeDiagnostic(stderr, args, "error: write command result: %v\n", err)
+			return 6
+		}
+	}
 	names := make([]string, 0, len(result.Outputs))
 	for name := range result.Outputs {
 		names = append(names, name)

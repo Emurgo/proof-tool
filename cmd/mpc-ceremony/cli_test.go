@@ -70,6 +70,17 @@ func TestParseInvocationAcceptsRequiredCommandSurface(t *testing.T) {
 		command Command
 	}{
 		{
+			name: "identity generate",
+			args: []string{
+				"identity", "generate",
+				"--identity-id", "participant-03",
+				"--display-name", "Participant Three",
+				"--private-key-out", "private/participant-03.private.hex",
+				"--public-identity-out", "participant-03.identity.json",
+			},
+			command: CommandIdentityGenerate,
+		},
+		{
 			name: "init",
 			args: []string{
 				"init",
