@@ -1,7 +1,6 @@
 package mpcceremony
 
 import (
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"os"
@@ -212,7 +211,7 @@ func CreateHostWipeAttestationFiles(
 		result.SignaturePath,
 		record,
 		participant.Identity.KeyID,
-		ed25519.PrivateKey(privateKey),
+		privateKey,
 	); err != nil {
 		return result, err
 	}
