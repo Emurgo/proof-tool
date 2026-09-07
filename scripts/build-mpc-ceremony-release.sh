@@ -10,6 +10,14 @@
 #     --build-signing-key /offline/build-signing-key \
 #     --out-dir /fresh/output
 #
+# A CI candidate is bound to a verified source tag but deliberately has no
+# offline build-package signature. It is evidence for the offline releaser,
+# never a production release:
+#   scripts/build-mpc-ceremony-release.sh \
+#     --mode candidate --signed-tag vX.Y.Z \
+#     --tag-signer-fingerprint "$APPROVED_GPG_FINGERPRINT" \
+#     --out-dir /fresh/output
+#
 # Rehearsals deliberately record that no signed-tag gate was applied:
 #   scripts/build-mpc-ceremony-release.sh \
 #     --mode rehearsal --out-dir /fresh/output
@@ -25,7 +33,7 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
 
 usage() {
-  echo "usage: $0 --mode production|rehearsal --out-dir DIR [--signed-tag TAG --tag-signer-fingerprint HEX] [--build-signing-key KEY]" >&2
+  echo "usage: $0 --mode production|candidate|rehearsal --out-dir DIR [--signed-tag TAG --tag-signer-fingerprint HEX] [--build-signing-key KEY]" >&2
   exit 2
 }
 
@@ -67,7 +75,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$MODE" != "production" && "$MODE" != "rehearsal" ]]; then
+if [[ "$MODE" != "production" && "$MODE" != "candidate" && "$MODE" != "rehearsal" ]]; then
   usage
 fi
 if [[ -z "$OUT_DIR" ]]; then
@@ -76,6 +84,11 @@ fi
 if [[ "$MODE" == "production" &&
   ( -z "$SIGNED_TAG" || -z "$TAG_SIGNER_FINGERPRINT" || -z "$BUILD_SIGNING_KEY" ) ]]; then
   echo "FAIL: production builds require --signed-tag, --tag-signer-fingerprint, and --build-signing-key" >&2
+  exit 1
+fi
+if [[ "$MODE" == "candidate" &&
+  ( -z "$SIGNED_TAG" || -z "$TAG_SIGNER_FINGERPRINT" || -n "$BUILD_SIGNING_KEY" ) ]]; then
+  echo "FAIL: candidates require --signed-tag and --tag-signer-fingerprint, and must not use a build-signing key" >&2
   exit 1
 fi
 if [[ "$MODE" == "rehearsal" &&

@@ -11,7 +11,7 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
 
 usage() {
-  echo "usage: $0 --mode production|rehearsal --expected-commit COMMIT --expected-tag TAG|none --tag-signer-fingerprint HEX|none --trusted-build-public-key-file FILE|none BUILD_DIR_A BUILD_DIR_B" >&2
+  echo "usage: $0 --mode production|candidate|rehearsal --expected-commit COMMIT --expected-tag TAG|none --tag-signer-fingerprint HEX|none --trusted-build-public-key-file FILE|none BUILD_DIR_A BUILD_DIR_B" >&2
   exit 2
 }
 
@@ -59,7 +59,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-if [[ $# -ne 2 || ( "$MODE" != "production" && "$MODE" != "rehearsal" ) ||
+if [[ $# -ne 2 || ( "$MODE" != "production" && "$MODE" != "candidate" && "$MODE" != "rehearsal" ) ||
   ! "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ||
   -z "$EXPECTED_TAG" || -z "$TAG_SIGNER_FINGERPRINT" ||
   -z "$TRUSTED_BUILD_PUBLIC_KEY_FILE" ]]; then
@@ -76,6 +76,12 @@ if [[ "$MODE" == "production" ]]; then
   if [[ ! -f "$TRUSTED_BUILD_PUBLIC_KEY_FILE" || -L "$TRUSTED_BUILD_PUBLIC_KEY_FILE" ]]; then
     echo "FAIL: trusted build public key must be a non-symlink regular file" >&2
     exit 1
+  fi
+elif [[ "$MODE" == "candidate" ]]; then
+  if [[ "$EXPECTED_TAG" == "none" ||
+    ! "$TAG_SIGNER_FINGERPRINT" =~ ^([0-9A-F]{40}|[0-9A-F]{64})$ ||
+    "$TRUSTED_BUILD_PUBLIC_KEY_FILE" != "none" ]]; then
+    usage
   fi
 elif [[ "$EXPECTED_TAG" != "none" || "$TAG_SIGNER_FINGERPRINT" != "NONE" ||
   "$TRUSTED_BUILD_PUBLIC_KEY_FILE" != "none" ]]; then
@@ -124,22 +130,22 @@ mapfile -t EXPECTED_FILES < <(printf '%s\n' "${EXPECTED_FILES[@]}" | LC_ALL=C so
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel)
-if [[ "$MODE" == "production" ]]; then
+if [[ "$MODE" == "production" || "$MODE" == "candidate" ]]; then
   if [[ "$EXPECTED_TAG" == -* ]] ||
     ! git -C "$REPO_ROOT" check-ref-format "refs/tags/$EXPECTED_TAG"; then
-    echo "FAIL: invalid expected production tag: $EXPECTED_TAG" >&2
+    echo "FAIL: invalid expected signed tag: $EXPECTED_TAG" >&2
     exit 1
   fi
   VERIFIED_TAG_COMMIT=$(git -C "$REPO_ROOT" rev-parse --verify "$EXPECTED_TAG^{commit}")
   if [[ "$VERIFIED_TAG_COMMIT" != "$EXPECTED_COMMIT" ]]; then
-    echo "FAIL: expected production tag does not resolve to the expected commit" >&2
+    echo "FAIL: expected signed tag does not resolve to the expected commit" >&2
     exit 1
   fi
   VERIFIED_TAG_OBJECT=$(git -C "$REPO_ROOT" rev-parse --verify "$EXPECTED_TAG^{tag}")
   VERIFY_TAG_OUTPUT=
   if ! VERIFY_TAG_OUTPUT=$(git -C "$REPO_ROOT" verify-tag --raw "$EXPECTED_TAG" 2>&1); then
     printf '%s\n' "$VERIFY_TAG_OUTPUT" >&2
-    echo "FAIL: independent production tag verification failed" >&2
+    echo "FAIL: independent signed tag verification failed" >&2
     exit 1
   fi
   mapfile -t VERIFIED_TAG_FINGERPRINTS < <(
@@ -209,7 +215,7 @@ for dir in "$BUILD_A" "$BUILD_B"; do
     echo "FAIL: all release binaries must be executable: $dir" >&2
     exit 1
   fi
-  if [[ "$MODE" == "production" ]]; then
+  if [[ "$MODE" == "production" || "$MODE" == "candidate" ]]; then
     RECORDED_TAG_OBJECT=$(<"$dir/signed-tag-object.txt")
     if [[ "$RECORDED_TAG_OBJECT" != "$VERIFIED_TAG_OBJECT" ]]; then
       echo "FAIL: recorded signed tag object does not equal independently verified tag object: $dir" >&2
@@ -306,6 +312,8 @@ cmp "$BUILD_A/mpc-finalization-evidence" "$BUILD_B/mpc-finalization-evidence"
 
 if [[ "$MODE" == "production" ]]; then
   echo "OK: independent signed-tag production MPC ceremony release builds are semantically valid and byte-identical"
+elif [[ "$MODE" == "candidate" ]]; then
+  echo "OK: independent signed-tag MPC ceremony candidates are semantically valid and byte-identical (NOT PRODUCTION)"
 else
   echo "OK: independent MPC ceremony rehearsal builds are semantically valid and byte-identical (NOT PRODUCTION)"
 fi
