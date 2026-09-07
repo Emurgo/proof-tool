@@ -132,19 +132,19 @@ func main() {
 	dir := flag.String("dir", "", "build package directory")
 	mode := flag.String("mode", "", "expected build mode")
 	commit := flag.String("commit", "", "expected lowercase 40-character source commit")
-	tag := flag.String("tag", "", "expected signed production tag or none")
+	tag := flag.String("tag", "", "expected signed tag for production/candidate, or none")
 	fingerprint := flag.String("tag-signer-fingerprint", "", "expected uppercase tag signer fingerprint or none")
 	sourceRoot := flag.String("source-root", "", "exact clean source checkout used to independently verify source and SBOM identities")
 	trustedBuildPublicKey := flag.String("trusted-build-public-key-file", "", "out-of-band trusted Ed25519 build public key or none")
 	flag.Parse()
-	if flag.NArg() != 0 || *dir == "" || (*mode != "production" && *mode != "rehearsal") ||
+	if flag.NArg() != 0 || *dir == "" || (*mode != "production" && *mode != "candidate" && *mode != "rehearsal") ||
 		!lowerCommitPattern.MatchString(*commit) || *tag == "" || *fingerprint == "" ||
 		*sourceRoot == "" || *trustedBuildPublicKey == "" {
-		fatal(errors.New("usage: verify-mpc-build-metadata --dir DIR --mode production|rehearsal --commit COMMIT --tag TAG|none --tag-signer-fingerprint HEX|none --source-root DIR --trusted-build-public-key-file FILE|none"))
+		fatal(errors.New("usage: verify-mpc-build-metadata --dir DIR --mode production|candidate|rehearsal --commit COMMIT --tag TAG|none --tag-signer-fingerprint HEX|none --source-root DIR --trusted-build-public-key-file FILE|none"))
 	}
 	if (*mode == "production" && *trustedBuildPublicKey == "none") ||
-		(*mode == "rehearsal" && *trustedBuildPublicKey != "none") {
-		fatal(errors.New("production requires an out-of-band trusted build public key; rehearsal requires none"))
+		((*mode == "candidate" || *mode == "rehearsal") && *trustedBuildPublicKey != "none") {
+		fatal(errors.New("production requires an out-of-band trusted build public key; candidates and rehearsals require none"))
 	}
 	if err := verifyPlainIdentity(*dir, *mode, *commit, *tag, *fingerprint); err != nil {
 		fatal(err)
@@ -252,10 +252,10 @@ func verifyPlainIdentity(dir, mode, commit, tag, fingerprint string) error {
 	if err != nil {
 		return err
 	}
-	if mode == "production" {
+	if mode == "production" || mode == "candidate" {
 		if tag == "none" || !fingerprintPattern.MatchString(fingerprint) ||
 			status != "verified" || !lowerCommitPattern.MatchString(tagObject) {
-			return errors.New("production package does not contain an exact verified signed-tag identity")
+			return fmt.Errorf("%s package does not contain an exact verified signed-tag identity", mode)
 		}
 	} else if tag != "none" || fingerprint != "none" ||
 		status != "not-required-for-rehearsal" || tagObject != "none" {
@@ -525,10 +525,10 @@ func verifyRootManifest(dir string, manifest digestManifest) error {
 func verifyBuildSignature(dir, mode, trustedPublicKeyPath string) error {
 	signaturePath := filepath.Join(dir, "build-package-manifest.sig")
 	bundledKeyPath := filepath.Join(dir, "build-package-manifest-public-key.hex")
-	if mode == "rehearsal" {
+	if mode == "rehearsal" || mode == "candidate" {
 		for _, path := range []string{signaturePath, bundledKeyPath} {
 			if _, err := os.Lstat(path); err == nil {
-				return fmt.Errorf("rehearsal package unexpectedly contains %s", filepath.Base(path))
+				return fmt.Errorf("%s package unexpectedly contains %s", mode, filepath.Base(path))
 			} else if !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
