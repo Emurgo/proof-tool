@@ -296,6 +296,31 @@ env \
 
 env \
   -u GOROOT \
+  -u GOAMD64 \
+  CGO_ENABLED=0 \
+  GOCACHE="$CANONICAL_ROOT/go-cache" \
+  GOENV=off \
+  GOEXPERIMENT= \
+  GOFIPS140=off \
+  GOOS=linux \
+  GOARCH=arm64 \
+  GOARM64=v8.0 \
+  GOTOOLCHAIN=local \
+  GOWORK=off \
+  GOFLAGS= \
+  SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+  TZ=UTC \
+  LC_ALL=C \
+  "$GO_BIN" build \
+    -mod=vendor \
+    -trimpath \
+    -buildvcs=true \
+    -ldflags=-buildid= \
+    -o "$STAGING/mpc-ceremony-linux-arm64" \
+    ./cmd/mpc-ceremony
+
+env \
+  -u GOROOT \
   CGO_ENABLED=0 \
   GOCACHE="$CANONICAL_ROOT/go-cache" \
   GOENV=off \
@@ -338,6 +363,25 @@ env \
 
 env \
   -u GOROOT \
+  -u GOARM64 \
+  CGO_ENABLED=0 \
+  GOCACHE="$CANONICAL_ROOT/go-cache" \
+  GOENV=off \
+  GOEXPERIMENT= \
+  GOFIPS140=off \
+  GOTOOLCHAIN=local \
+  GOWORK=off \
+  GOOS=linux \
+  GOARCH=amd64 \
+  GOAMD64=v1 \
+  GOFLAGS=-mod=vendor \
+  "$GO_BIN" run ./scripts/hash-blake2b \
+    -go-version "$GO_VERSION" \
+    -build-flags "$BUILD_FLAGS" \
+    "$STAGING/mpc-ceremony-linux-arm64" >"$STAGING/arm64-binary-manifest.json"
+
+env \
+  -u GOROOT \
   CGO_ENABLED=0 \
   GOCACHE="$CANONICAL_ROOT/go-cache" \
   GOENV=off \
@@ -374,6 +418,25 @@ env \
 
 env \
   -u GOROOT \
+  -u GOARM64 \
+  CGO_ENABLED=0 \
+  GOCACHE="$CANONICAL_ROOT/go-cache" \
+  GOENV=off \
+  GOEXPERIMENT= \
+  GOFIPS140=off \
+  GOTOOLCHAIN=local \
+  GOWORK=off \
+  GOOS=linux \
+  GOARCH=amd64 \
+  GOAMD64=v1 \
+  GOFLAGS=-mod=vendor \
+  "$GO_BIN" run ./scripts/generate-go-sbom \
+    --binary "$STAGING/mpc-ceremony-linux-arm64" \
+    --name mpc-ceremony-linux-arm64 \
+    --source-root "$CANONICAL_SOURCE" >"$STAGING/arm64-sbom.cdx.json"
+
+env \
+  -u GOROOT \
   CGO_ENABLED=0 \
   GOCACHE="$CANONICAL_ROOT/go-cache" \
   GOENV=off \
@@ -402,8 +465,8 @@ env \
 
 (
   cd "$STAGING"
-  sha256sum mpc-ceremony mpc-finalization-evidence >checksums.sha256
-  b2sum -l 256 mpc-ceremony mpc-finalization-evidence >checksums.blake2b256
+  sha256sum mpc-ceremony mpc-ceremony-linux-arm64 mpc-finalization-evidence >checksums.sha256
+  b2sum -l 256 mpc-ceremony mpc-ceremony-linux-arm64 mpc-finalization-evidence >checksums.blake2b256
   env -u GOROOT \
     CGO_ENABLED=0 \
     GOARCH=amd64 \
@@ -414,6 +477,16 @@ env \
     GOTOOLCHAIN=local \
     GOAMD64=v1 \
     "$GO_BIN" version -m ./mpc-ceremony >go-build-info.txt
+  env -u GOROOT -u GOAMD64 \
+    CGO_ENABLED=0 \
+    GOARCH=arm64 \
+    GOENV=off \
+    GOEXPERIMENT= \
+    GOFIPS140=off \
+    GOOS=linux \
+    GOARM64=v8.0 \
+    GOTOOLCHAIN=local \
+    "$GO_BIN" version -m ./mpc-ceremony-linux-arm64 >arm64-go-build-info.txt
   env -u GOROOT \
     CGO_ENABLED=0 \
     GOARCH=amd64 \
@@ -440,6 +513,9 @@ $EXPECTED_ASM_SHA256  asm
 EOF
 
 ROOT_INPUTS=(
+  "$STAGING/arm64-binary-manifest.json"
+  "$STAGING/arm64-go-build-info.txt"
+  "$STAGING/arm64-sbom.cdx.json"
   "$STAGING/binary-manifest.json"
   "$STAGING/build-mode.txt"
   "$STAGING/checksums.blake2b256"
@@ -450,6 +526,7 @@ ROOT_INPUTS=(
   "$STAGING/finalization-evidence-sbom.cdx.json"
   "$STAGING/mpc-finalization-evidence"
   "$STAGING/mpc-ceremony"
+  "$STAGING/mpc-ceremony-linux-arm64"
   "$STAGING/sbom.cdx.json"
   "$STAGING/signed-tag-object.txt"
   "$STAGING/signed-tag-signer-fingerprint.txt"
@@ -503,7 +580,10 @@ if [[ -n "$BUILD_SIGNING_KEY" ]]; then
       --public-key-out "$STAGING/build-package-manifest-public-key.hex"
 fi
 
-chmod 0555 "$STAGING/mpc-ceremony" "$STAGING/mpc-finalization-evidence"
+chmod 0555 \
+  "$STAGING/mpc-ceremony" \
+  "$STAGING/mpc-ceremony-linux-arm64" \
+  "$STAGING/mpc-finalization-evidence"
 chmod 0444 \
   "$STAGING"/*.txt \
   "$STAGING"/*.json \
@@ -535,4 +615,4 @@ rm -rf -- "$CANONICAL_ROOT"
 CANONICAL_ROOT=
 trap - EXIT
 
-echo "OK: built $OUT_DIR/mpc-ceremony from $SOURCE_COMMIT ($MODE)"
+echo "OK: built linux/amd64 and linux/arm64 mpc-ceremony binaries from $SOURCE_COMMIT ($MODE)"

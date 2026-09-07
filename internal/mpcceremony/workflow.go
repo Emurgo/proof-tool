@@ -54,15 +54,17 @@ type TrustPaths struct {
 type TrustedCeremony struct {
 	Definition           CeremonyDefinition
 	CoordinatorPublicKey ed25519.PublicKey
+	RunningSoftware      SoftwareBinding
 }
 
 // InitParticipants is the fixed-field, canonical enrollment input accepted by
 // the coordinator init command. It contains public signing identities only.
 type InitParticipants struct {
-	Coordinator   Identity      `json:"coordinator"`
-	ReleaseSigner Identity      `json:"release_signer"`
-	Auditors      []Identity    `json:"auditors"`
-	Roster        []Participant `json:"roster"`
+	Coordinator          Identity      `json:"coordinator"`
+	ReleaseSigner        Identity      `json:"release_signer"`
+	Auditors             []Identity    `json:"auditors"`
+	Roster               []Participant `json:"roster"`
+	HostWipeParticipants []string      `json:"host_wipe_participants,omitempty"`
 }
 
 func (p InitParticipants) Validate() error {
@@ -85,6 +87,7 @@ func (p InitParticipants) Validate() error {
 	identityIDs := make(map[string]string, 2+len(p.Auditors)+len(p.Roster))
 	keyIDs := make(map[string]string, 2+len(p.Auditors)+len(p.Roster))
 	publicKeyFingerprints := make(map[string]string, 2+len(p.Auditors)+len(p.Roster))
+	rosterIDs := make(map[string]struct{}, len(p.Roster))
 	add := func(identity Identity, role string) error {
 		if previous, exists := identityIDs[identity.ID]; exists {
 			return fmt.Errorf("%s identity %q duplicates %s", role, identity.ID, previous)
@@ -120,6 +123,18 @@ func (p InitParticipants) Validate() error {
 		}
 		if err := add(participant.Identity, "participant"); err != nil {
 			return err
+		}
+		rosterIDs[participant.Identity.ID] = struct{}{}
+	}
+	if !slices.IsSorted(p.HostWipeParticipants) {
+		return errors.New("host_wipe_participants must be sorted")
+	}
+	for index, id := range p.HostWipeParticipants {
+		if index > 0 && id == p.HostWipeParticipants[index-1] {
+			return errors.New("host_wipe_participants must not contain duplicates")
+		}
+		if _, ok := rosterIDs[id]; !ok {
+			return fmt.Errorf("host-wipe participant %q is not in the roster", id)
 		}
 	}
 	return nil
@@ -242,6 +257,13 @@ func loadOperationalCeremony(paths TrustPaths) (*TrustedCeremony, error) {
 		trusted.Definition.Mode,
 	); err != nil {
 		return nil, fmt.Errorf("running software does not match signed ceremony definition: %w", err)
+	}
+	trusted.RunningSoftware, err = RunningSoftwareBindingForMode(
+		trusted.Definition.Software.ProofToolVersion,
+		trusted.Definition.Mode,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("record running software identity: %w", err)
 	}
 	return trusted, nil
 }
@@ -783,7 +805,7 @@ func CreateContributionCandidate(options ContributionFilesOptions) (result Contr
 		PreviousPayload:      previousPayload,
 		OutputPayload:        outputRef,
 		PreviousAcceptanceID: previousRecordID,
-		ToolBinary:           trusted.Definition.Software.ToolBinary,
+		ToolBinary:           trusted.RunningSoftware.ToolBinary,
 		SourceCommit:         trusted.Definition.Software.SourceCommit,
 		GnarkVersion:         trusted.Definition.Software.GnarkVersion,
 		GnarkCryptoVersion:   trusted.Definition.Software.GnarkCryptoVersion,

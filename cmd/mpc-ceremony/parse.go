@@ -164,11 +164,19 @@ func parseRehearsal(invocation Invocation, args []string) (Invocation, error) {
 
 func parseRehearsalInit(args []string) (RehearsalInitOptions, error) {
 	var options RehearsalInitOptions
+	var allowedBinaries stringList
 	fs := commandFlagSet("rehearsal init")
 	fs.StringVar(&options.CreatedAt, "created-at", "", "ceremony creation timestamp in RFC3339")
 	fs.StringVar(&options.OutDir, "out-dir", "", "fresh rehearsal work directory")
+	fs.Var(&allowedBinaries, "allowed-binary", "additional exact mpc-ceremony binary to sign into the platform allowlist (repeatable)")
 	if err := parseFlags(fs, args); err != nil {
 		return options, err
+	}
+	options.AllowedBinaryPaths = append([]string(nil), allowedBinaries...)
+	for _, path := range options.AllowedBinaryPaths {
+		if err := validatePathValue("--allowed-binary", path); err != nil {
+			return options, err
+		}
 	}
 	return options, requireValues(
 		value("--created-at", options.CreatedAt),
@@ -424,6 +432,10 @@ func parseOps(invocation Invocation, args []string) (Invocation, error) {
 		return Invocation{}, &helpRequest{topic: append([]string{"ops"}, args[1:]...)}
 	}
 	switch args[0] {
+	case "attest-host-wipe":
+		options, err := parseHostWipe(args[1:])
+		invocation.Command, invocation.Options = CommandOpsAttestHostWipe, options
+		return invocation, wrapCommandError(err, "ops", "attest-host-wipe")
 	case "prepare-public-witness-receipt":
 		options, err := parseOpsPreparePublicWitnessReceipt(args[1:])
 		invocation.Command, invocation.Options = CommandOpsPreparePublicWitnessReceipt, options
@@ -450,6 +462,28 @@ func parseOps(invocation Invocation, args []string) (Invocation, error) {
 			topic:   []string{"ops"},
 		}
 	}
+}
+
+func parseHostWipe(args []string) (HostWipeOptions, error) {
+	var options HostWipeOptions
+	fs := commandFlagSet("ops attest-host-wipe")
+	addCeremonyTrustFlags(fs, &options.CeremonyPath, &options.CeremonySignaturePath, &options.CoordinatorPublicKeyFile)
+	fs.StringVar(&options.ParticipantID, "participant-id", "", "participant identity from the signed host-wipe policy")
+	fs.StringVar(&options.ParticipantSigningKey, "participant-signing-key", "", "participant Ed25519 private key restored from separate storage")
+	fs.StringVar(&options.WipedAt, "wiped-at", "", "completion time of the whole-device wipe and clean reinstall in RFC3339 UTC")
+	fs.StringVar(&options.OutDir, "out-dir", "", "fresh directory for the signed host-wipe record")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	return options, requireValues(
+		pathValue("--ceremony", options.CeremonyPath),
+		pathValue("--ceremony-signature", options.CeremonySignaturePath),
+		pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile),
+		value("--participant-id", options.ParticipantID),
+		pathValue("--participant-signing-key", options.ParticipantSigningKey),
+		value("--wiped-at", options.WipedAt),
+		pathValue("--out-dir", options.OutDir),
+	)
 }
 
 func parseOpsPreparePublicWitnessReceipt(args []string) (OpsPreparePublicWitnessReceiptOptions, error) {
@@ -577,7 +611,7 @@ func parseOpsVerify(args []string) (OpsVerifyOptions, error) {
 }
 
 func addOpsRecordFlags(fs *flag.FlagSet, recordType, recordPath *string) {
-	fs.StringVar(recordType, "record-type", "", "enrollment, handoff, receipt, mirror-receipt, public-witness, beacon-evidence, evidence-bundle, or governance")
+	fs.StringVar(recordType, "record-type", "", "enrollment, handoff, receipt, mirror-receipt, public-witness, beacon-evidence, evidence-bundle, governance, or host-wipe")
 	fs.StringVar(recordPath, "record", "", "canonical operational record JSON")
 }
 
@@ -687,6 +721,7 @@ func parseRelease(invocation Invocation, args []string) (Invocation, error) {
 
 func parseInit(args []string) (InitOptions, error) {
 	var options InitOptions
+	var allowedBinaries stringList
 	fs := commandFlagSet("init")
 	fs.StringVar(&options.SessionNonceHex, "session-nonce-hex", "", "optional 32-byte session nonce as hex; generated securely when omitted")
 	fs.StringVar(&options.CreatedAt, "created-at", "", "ceremony creation timestamp in RFC3339")
@@ -697,8 +732,15 @@ func parseInit(args []string) (InitOptions, error) {
 	fs.StringVar(&options.CoordinatorSigningKey, "coordinator-signing-key", "", "existing Ed25519 coordinator private key path")
 	fs.StringVar(&options.OutDir, "out-dir", "", "fresh ceremony directory")
 	fs.StringVar(&options.Mode, "mode", "rehearsal", "ceremony mode: rehearsal or production")
+	fs.Var(&allowedBinaries, "allowed-binary", "additional exact mpc-ceremony binary to sign into the platform allowlist (repeatable)")
 	if err := parseFlags(fs, args); err != nil {
 		return options, err
+	}
+	options.AllowedBinaryPaths = append([]string(nil), allowedBinaries...)
+	for _, path := range options.AllowedBinaryPaths {
+		if err := validatePathValue("--allowed-binary", path); err != nil {
+			return options, err
+		}
 	}
 	if options.Mode != "rehearsal" && options.Mode != "production" {
 		return options, errors.New("--mode must be rehearsal or production")

@@ -35,12 +35,13 @@ const (
 	RecordMirrorReceipt  OperationalRecordType = "mirror-receipt"
 	RecordEvidenceBundle OperationalRecordType = "evidence-bundle"
 	RecordGovernance     OperationalRecordType = "governance"
+	RecordHostWipe       OperationalRecordType = "host-wipe"
 )
 
 func (t OperationalRecordType) Validate() error {
 	switch t {
 	case RecordEnrollment, RecordHandoff, RecordReceipt, RecordPublicWitness,
-		RecordBeaconEvidence, RecordMirrorReceipt, RecordEvidenceBundle, RecordGovernance:
+		RecordBeaconEvidence, RecordMirrorReceipt, RecordEvidenceBundle, RecordGovernance, RecordHostWipe:
 		return nil
 	default:
 		return fmt.Errorf("unsupported operational record type %q", t)
@@ -643,6 +644,8 @@ func ParseOperationalRecord(recordType OperationalRecordType, canonical []byte) 
 		destination = &OperationalEvidenceBundle{}
 	case RecordGovernance:
 		destination = &GovernanceRecord{}
+	case RecordHostWipe:
+		destination = &HostWipeAttestation{}
 	default:
 		return nil, fmt.Errorf("unsupported operational record type %q", recordType)
 	}
@@ -745,6 +748,14 @@ func VerifyOperationalRecordBinding(
 		ceremonyID, signerID, signerKeyID = r.CeremonyID, r.CoordinatorID, r.CoordinatorKeyID
 	case *GovernanceRecord:
 		ceremonyID, signerID, signerKeyID = r.CeremonyID, r.SignerID, r.SignerKeyID
+	case *HostWipeAttestation:
+		ceremonyID, signerID, signerKeyID = r.CeremonyID, r.ParticipantID, r.ParticipantKeyID
+		if err := r.Validate(); err != nil {
+			return Identity{}, err
+		}
+		if !slices.Contains(definition.HostWipeParticipants, r.ParticipantID) {
+			return Identity{}, errors.New("host-wipe participant is not required by the signed ceremony")
+		}
 	default:
 		return Identity{}, fmt.Errorf("unsupported operational record %T", record)
 	}
@@ -1070,7 +1081,7 @@ func identityOverlapsDefinition(definition CeremonyDefinition, candidate Identit
 
 func verifyTransferSource(definition CeremonyDefinition, source TransferSourceBinding) error {
 	if source.SourceCommit != definition.Software.SourceCommit ||
-		source.ToolBinary != definition.Software.ToolBinary ||
+		!definition.Software.AllowsToolBinary(source.ToolBinary) ||
 		source.R1CS != definition.Circuit.R1CS {
 		return errors.New("transfer source, binary, or R1CS binding does not match ceremony definition")
 	}

@@ -559,7 +559,15 @@ export function inspectMPCRelease({
       "MPC final transcript must bind at least two independent audits.",
     );
   }
-  exact(ceremony.schema, "proof-tool-mpc-ceremony-definition-v1", "ceremony definition schema");
+  if (
+    ceremony.schema !== "proof-tool-mpc-ceremony-definition-v1" &&
+    ceremony.schema !== "proof-tool-mpc-ceremony-definition-v2"
+  ) {
+    throw new MainnetPreparationError(
+      "coherence_mismatch",
+      "ceremony definition schema does not match a supported value.",
+    );
+  }
   exact(ceremony.ceremony_id, expectedCeremonyID, "ceremony definition id");
   exact(ceremony.mode, "production", "ceremony mode");
   exact(ceremony.software?.source_commit, expectedSourceCommit, "ceremony source commit");

@@ -352,6 +352,67 @@ func TestRehearsalBindingRecordsAndVerifiesDirtyBuild(t *testing.T) {
 	}
 }
 
+func TestPlatformBinaryAllowlistAcceptsExactAMD64AndARM64Executables(t *testing.T) {
+	amdSource := newTestSoftwareSource(t, []byte("amd64 ceremony executable"), testBuildInfo())
+	amdBinding, err := runningSoftwareBinding(prover.ProofToolVersion, ModeProduction, amdSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	armSource := newTestSoftwareSource(t, []byte("arm64 ceremony executable"), testARM64BuildInfo())
+	armBinding, err := runningSoftwareBinding(prover.ProofToolVersion, ModeProduction, armSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	policy, err := softwareBindingWithAllowedBindings(armBinding, []SoftwareBinding{amdBinding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(policy.Binaries) != 2 {
+		t.Fatalf("allowed binaries = %d, want 2", len(policy.Binaries))
+	}
+	if policy.Binaries[0].GoArch != "amd64" || policy.Binaries[1].GoArch != "arm64" {
+		t.Fatalf("allowed binaries are not canonical: %#v", policy.Binaries)
+	}
+	if err := verifyRunningSoftware(policy, ModeProduction, amdSource); err != nil {
+		t.Fatalf("verify allowed amd64 binary: %v", err)
+	}
+	if err := verifyRunningSoftware(policy, ModeProduction, armSource); err != nil {
+		t.Fatalf("verify allowed arm64 binary: %v", err)
+	}
+
+	unlistedSource := newTestSoftwareSource(t, []byte("unlisted amd64 executable"), testBuildInfo())
+	if err := verifyRunningSoftware(policy, ModeProduction, unlistedSource); err == nil {
+		t.Fatal("unlisted binary was accepted")
+	}
+}
+
+func TestPlatformBinaryAllowlistRejectsMultipleBinariesForOnePlatformAndMetadataDrift(t *testing.T) {
+	primarySource := newTestSoftwareSource(t, []byte("primary"), testBuildInfo())
+	primary, err := runningSoftwareBinding(prover.ProofToolVersion, ModeProduction, primarySource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicateSource := newTestSoftwareSource(t, []byte("different bytes"), testBuildInfo())
+	duplicate, err := runningSoftwareBinding(prover.ProofToolVersion, ModeProduction, duplicateSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := softwareBindingWithAllowedBindings(primary, []SoftwareBinding{duplicate}); err == nil {
+		t.Fatal("two binaries for one platform were accepted")
+	}
+
+	armSource := newTestSoftwareSource(t, []byte("arm64"), testARM64BuildInfo())
+	arm, err := runningSoftwareBinding(prover.ProofToolVersion, ModeProduction, armSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arm.SourceCommit = strings.Repeat("a", 40)
+	if _, err := softwareBindingWithAllowedBindings(primary, []SoftwareBinding{arm}); err == nil {
+		t.Fatal("different source commit was accepted")
+	}
+}
+
 func TestRunningSoftwareBindingRejectsWrongCompiledVersionAndBadExecutable(t *testing.T) {
 	source := newTestSoftwareSource(t, []byte("ceremony executable"), testBuildInfo())
 	if _, err := runningSoftwareBinding(prover.ProofToolVersion, "unknown", source); err == nil {
@@ -453,6 +514,20 @@ func testBuildInfo() *debug.BuildInfo {
 			},
 		},
 	}
+}
+
+func testARM64BuildInfo() *debug.BuildInfo {
+	info := testBuildInfo()
+	settings := info.Settings[:0]
+	for _, setting := range info.Settings {
+		if setting.Key != "GOAMD64" {
+			settings = append(settings, setting)
+		}
+	}
+	info.Settings = settings
+	setTestBuildSetting(info, "GOARCH", "arm64")
+	setTestBuildSetting(info, "GOARM64", ProductionGOARM64)
+	return info
 }
 
 func newTestSoftwareSource(

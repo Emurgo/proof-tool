@@ -3,6 +3,7 @@ package mpcceremony
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 const ProductionMinimumWitnessLeadSeconds uint32 = 24 * 60 * 60
@@ -23,55 +24,62 @@ const ProductionMinimumWitnessLeadSeconds uint32 = 24 * 60 * 60
 const ProductionWitnessObservationWindowSeconds uint32 = 60 * 60
 
 type CeremonyDefinition struct {
-	Schema          string          `json:"schema"`
-	CeremonyID      string          `json:"ceremony_id"`
-	Mode            string          `json:"mode"`
-	CreatedAt       string          `json:"created_at"`
-	SessionNonceHex string          `json:"session_nonce_hex"`
-	Circuit         CircuitBinding  `json:"circuit"`
-	Software        SoftwareBinding `json:"software"`
-	Coordinator     Identity        `json:"coordinator"`
-	ReleaseSigner   Identity        `json:"release_signer"`
-	Auditors        []Identity      `json:"auditors"`
-	Roster          []Participant   `json:"roster"`
-	Phase1Policy    PhasePolicy     `json:"phase1_policy"`
-	Phase2Policy    PhasePolicy     `json:"phase2_policy"`
-	BeaconPolicy    BeaconPolicy    `json:"beacon_policy"`
-	Phase1Genesis   ArtifactRef     `json:"phase1_genesis"`
+	Schema               string          `json:"schema"`
+	CeremonyID           string          `json:"ceremony_id"`
+	Mode                 string          `json:"mode"`
+	CreatedAt            string          `json:"created_at"`
+	SessionNonceHex      string          `json:"session_nonce_hex"`
+	Circuit              CircuitBinding  `json:"circuit"`
+	Software             SoftwareBinding `json:"software"`
+	Coordinator          Identity        `json:"coordinator"`
+	ReleaseSigner        Identity        `json:"release_signer"`
+	Auditors             []Identity      `json:"auditors"`
+	Roster               []Participant   `json:"roster"`
+	HostWipeParticipants []string        `json:"host_wipe_participants,omitempty"`
+	Phase1Policy         PhasePolicy     `json:"phase1_policy"`
+	Phase2Policy         PhasePolicy     `json:"phase2_policy"`
+	BeaconPolicy         BeaconPolicy    `json:"beacon_policy"`
+	Phase1Genesis        ArtifactRef     `json:"phase1_genesis"`
 }
 
 type DefinitionOptions struct {
-	Mode            string
-	CreatedAt       string
-	SessionNonceHex string
-	Circuit         CircuitBinding
-	Software        SoftwareBinding
-	Coordinator     Identity
-	ReleaseSigner   Identity
-	Auditors        []Identity
-	Roster          []Participant
-	Phase1Policy    PhasePolicy
-	Phase2Policy    PhasePolicy
-	BeaconPolicy    BeaconPolicy
-	Phase1Genesis   ArtifactRef
+	Mode                 string
+	CreatedAt            string
+	SessionNonceHex      string
+	Circuit              CircuitBinding
+	Software             SoftwareBinding
+	Coordinator          Identity
+	ReleaseSigner        Identity
+	Auditors             []Identity
+	Roster               []Participant
+	HostWipeParticipants []string
+	Phase1Policy         PhasePolicy
+	Phase2Policy         PhasePolicy
+	BeaconPolicy         BeaconPolicy
+	Phase1Genesis        ArtifactRef
 }
 
 func NewCeremonyDefinition(options DefinitionOptions) (CeremonyDefinition, error) {
+	software := options.Software
+	if len(software.Binaries) == 0 {
+		software.Binaries = []SoftwareBinary{software.primaryBinary()}
+	}
 	definition := CeremonyDefinition{
-		Schema:          DefinitionSchema,
-		Mode:            options.Mode,
-		CreatedAt:       options.CreatedAt,
-		SessionNonceHex: options.SessionNonceHex,
-		Circuit:         options.Circuit,
-		Software:        options.Software,
-		Coordinator:     options.Coordinator,
-		ReleaseSigner:   options.ReleaseSigner,
-		Auditors:        append([]Identity(nil), options.Auditors...),
-		Roster:          append([]Participant(nil), options.Roster...),
-		Phase1Policy:    clonePhasePolicy(options.Phase1Policy),
-		Phase2Policy:    clonePhasePolicy(options.Phase2Policy),
-		BeaconPolicy:    options.BeaconPolicy,
-		Phase1Genesis:   options.Phase1Genesis,
+		Schema:               DefinitionSchema,
+		Mode:                 options.Mode,
+		CreatedAt:            options.CreatedAt,
+		SessionNonceHex:      options.SessionNonceHex,
+		Circuit:              options.Circuit,
+		Software:             software,
+		Coordinator:          options.Coordinator,
+		ReleaseSigner:        options.ReleaseSigner,
+		Auditors:             append([]Identity(nil), options.Auditors...),
+		Roster:               append([]Participant(nil), options.Roster...),
+		HostWipeParticipants: append([]string(nil), options.HostWipeParticipants...),
+		Phase1Policy:         clonePhasePolicy(options.Phase1Policy),
+		Phase2Policy:         clonePhasePolicy(options.Phase2Policy),
+		BeaconPolicy:         options.BeaconPolicy,
+		Phase1Genesis:        options.Phase1Genesis,
 	}
 	id, err := ComputeCeremonyID(definition)
 	if err != nil {
@@ -89,6 +97,9 @@ func NewCeremonyDefinition(options DefinitionOptions) (CeremonyDefinition, error
 // compilation from metadata construction.
 func FinalizeCeremonyDefinition(definition CeremonyDefinition) (CeremonyDefinition, error) {
 	definition.Schema = DefinitionSchema
+	if len(definition.Software.Binaries) == 0 {
+		definition.Software.Binaries = []SoftwareBinary{definition.Software.primaryBinary()}
+	}
 	definition.CeremonyID = ""
 	id, err := ComputeCeremonyID(definition)
 	if err != nil {
@@ -106,7 +117,11 @@ func ComputeCeremonyID(definition CeremonyDefinition) (string, error) {
 	if err := definition.validate(false); err != nil {
 		return "", err
 	}
-	return canonicalHash("proof-tool/mpc-ceremony/root/v1", definition)
+	domain := "proof-tool/mpc-ceremony/root/v2"
+	if definition.Schema == DefinitionSchemaV1 {
+		domain = "proof-tool/mpc-ceremony/root/v1"
+	}
+	return canonicalHash(domain, definition)
 }
 
 func (d CeremonyDefinition) Validate() error {
@@ -124,8 +139,17 @@ func (d CeremonyDefinition) Validate() error {
 }
 
 func (d CeremonyDefinition) validate(requireID bool) error {
-	if d.Schema != DefinitionSchema {
-		return fmt.Errorf("definition schema %q, want %q", d.Schema, DefinitionSchema)
+	switch d.Schema {
+	case DefinitionSchema:
+	case DefinitionSchemaV1:
+		if len(d.Software.Binaries) != 0 || d.Software.GoARM64 != "" || len(d.HostWipeParticipants) != 0 {
+			return errors.New("definition v1 must not contain v2-only fields")
+		}
+	default:
+		return fmt.Errorf(
+			"definition schema %q, want %q or %q",
+			d.Schema, DefinitionSchemaV1, DefinitionSchema,
+		)
 	}
 	if requireID {
 		if err := validateTaggedHex(d.CeremonyID, "sha256:", 32); err != nil {
@@ -159,6 +183,7 @@ func (d CeremonyDefinition) validate(requireID bool) error {
 			d.Software.GoOS,
 			d.Software.GoArch,
 			d.Software.GoAMD64,
+			d.Software.GoARM64,
 			d.Software.Compiler,
 			d.Software.BuildMode,
 			d.Software.CGOEnabled,
@@ -185,6 +210,26 @@ func (d CeremonyDefinition) validate(requireID bool) error {
 	}
 	if err := d.Software.Validate(); err != nil {
 		return fmt.Errorf("software: %w", err)
+	}
+	if d.Schema == DefinitionSchema && len(d.Software.Binaries) == 0 {
+		return errors.New("definition v2 requires at least one allowed software binary")
+	}
+	if d.Mode == ModeProduction {
+		for index, binary := range d.Software.AllowedBinaries() {
+			if err := validateProductionBuildProfile(
+				d.Software.GoVersion,
+				binary.GoOS,
+				binary.GoArch,
+				binary.GoAMD64,
+				binary.GoARM64,
+				d.Software.Compiler,
+				d.Software.BuildMode,
+				d.Software.CGOEnabled,
+				d.Software.TrimPath,
+			); err != nil {
+				return fmt.Errorf("production software binary %d profile: %w", index, err)
+			}
+		}
 	}
 	if err := d.Coordinator.Validate(); err != nil {
 		return fmt.Errorf("coordinator: %w", err)
@@ -259,6 +304,26 @@ func (d CeremonyDefinition) validate(requireID bool) error {
 		identityIDs[id] = "participant"
 		keyIDs[keyID] = "participant"
 		publicKeyFingerprints[participant.Identity.PublicKeyFingerprint] = "participant"
+	}
+	if len(d.HostWipeParticipants) > len(d.Roster) {
+		return errors.New("host_wipe_participants cannot exceed the signed roster")
+	}
+	if !slices.IsSorted(d.HostWipeParticipants) {
+		return errors.New("host_wipe_participants must be sorted")
+	}
+	for index, id := range d.HostWipeParticipants {
+		if index > 0 && id == d.HostWipeParticipants[index-1] {
+			return errors.New("host_wipe_participants must not contain duplicates")
+		}
+		if _, ok := roster[id]; !ok {
+			return fmt.Errorf("host-wipe participant %q is not in the signed roster", id)
+		}
+		if !slices.Contains(d.Phase1Policy.Participants, id) && !slices.Contains(d.Phase2Policy.Participants, id) {
+			return fmt.Errorf("host-wipe participant %q is not scheduled in either phase", id)
+		}
+	}
+	if d.Mode == ModeRehearsal && len(d.HostWipeParticipants) != 0 {
+		return errors.New("rehearsal ceremony must not require production host wipes")
 	}
 	if err := d.Phase1Policy.Validate(roster); err != nil {
 		return fmt.Errorf("phase1_policy: %w", err)

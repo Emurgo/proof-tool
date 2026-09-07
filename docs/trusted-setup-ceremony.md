@@ -17,6 +17,22 @@ coordinated ceremony kit selects independently verified releases, tests the
 exact binaries together, and records their hashes as described in
 [`mpc-ceremony-release.md`](mpc-ceremony-release.md).
 
+A v2 ceremony may authorize both released Linux CPU targets in one signed
+definition. The running binary is included automatically; the coordinator adds
+the other exact executable at initialization with `--allowed-binary FILE`.
+Every participant still verifies that its current executable is an exact
+allowlist member, and every contribution attestation records the digest that
+actually ran. A v1 definition is intentionally interpreted as a singleton
+allowlist.
+
+For a production ceremony that permits macOS participants through Docker, the
+canonical participant input also freezes a sorted `host_wipe_participants`
+list into the v2 signed definition. Their contributions may be accepted before
+the whole Mac is erased, but final operational-evidence and release
+verification require a participant-signed post-wipe record that is later than
+that participant's final accepted contribution. This is authenticated
+honest-participant evidence, not physical proof that no earlier copy exists.
+
 ## Single-Actor Local Setup
 
 Run the local path with:
@@ -90,3 +106,11 @@ The MPC path narrows the trust assumption to require at least one honest
 independent contributor in each phase, but it does not cryptographically prove
 that a contributor erased its randomness. Every accepted participant must use
 and attest to the host controls in the MPC runbook.
+
+For a participant named by the signed production Mac wipe policy, the immediate
+container-erasure record permits contribution acceptance but is not the final
+host-level gate. After the participant's last contribution, the whole Mac is
+erased and cleanly reinstalled without restoring backups, snapshots, Docker
+Desktop state, or contribution copies. The participant then runs `mpc-ceremony
+ops attest-host-wipe` through Relay's guided flow. Release verification rejects
+a missing, duplicate, invalid, or too-early required record.

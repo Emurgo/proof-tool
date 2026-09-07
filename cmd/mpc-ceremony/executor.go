@@ -73,6 +73,8 @@ func (workflowExecutor) Execute(ctx context.Context, invocation Invocation) (Com
 		return executeReleaseVerify(invocation.Options.(ReleaseVerifyOptions))
 	case CommandOpsPreparePublicWitnessReceipt:
 		return executeOpsPreparePublicWitnessReceipt(invocation.Options.(OpsPreparePublicWitnessReceiptOptions))
+	case CommandOpsAttestHostWipe:
+		return executeOpsAttestHostWipe(invocation.Options.(HostWipeOptions))
 	case CommandOpsPrepareMirrorReceipt:
 		return executeOpsPrepareMirrorReceipt(invocation.Options.(OpsPrepareMirrorReceiptOptions))
 	case CommandOpsExportSigning:
@@ -120,6 +122,15 @@ func executeInit(options InitOptions) (CommandResult, error) {
 	if err != nil {
 		return CommandResult{}, err
 	}
+	runningSoftware, err = mpcceremony.SoftwareBindingWithAllowedBinaryFiles(
+		runningSoftware,
+		proofToolVersion,
+		options.Mode,
+		options.AllowedBinaryPaths,
+	)
+	if err != nil {
+		return CommandResult{}, err
+	}
 	nonce, err := sessionNonce(options.SessionNonceHex)
 	if err != nil {
 		return CommandResult{}, err
@@ -140,17 +151,18 @@ func executeInit(options InitOptions) (CommandResult, error) {
 		RootDir: options.OutDir,
 		Circuit: circuit,
 		Definition: mpcceremony.DefinitionOptions{
-			Mode:            options.Mode,
-			CreatedAt:       options.CreatedAt,
-			SessionNonceHex: nonce,
-			Software:        runningSoftware,
-			Coordinator:     participants.Coordinator,
-			ReleaseSigner:   participants.ReleaseSigner,
-			Auditors:        participants.Auditors,
-			Roster:          participants.Roster,
-			Phase1Policy:    policy.Phase1Policy,
-			Phase2Policy:    policy.Phase2Policy,
-			BeaconPolicy:    policy.BeaconPolicy,
+			Mode:                 options.Mode,
+			CreatedAt:            options.CreatedAt,
+			SessionNonceHex:      nonce,
+			Software:             runningSoftware,
+			Coordinator:          participants.Coordinator,
+			ReleaseSigner:        participants.ReleaseSigner,
+			Auditors:             participants.Auditors,
+			Roster:               participants.Roster,
+			HostWipeParticipants: participants.HostWipeParticipants,
+			Phase1Policy:         policy.Phase1Policy,
+			Phase2Policy:         policy.Phase2Policy,
+			BeaconPolicy:         policy.BeaconPolicy,
 		},
 		CoordinatorPrivateKeyPath: options.CoordinatorSigningKey,
 	})

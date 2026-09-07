@@ -38,6 +38,7 @@ const (
 	CommandReleaseVerify                  Command = "release verify"
 	CommandOpsPrepareMirrorReceipt        Command = "ops prepare-mirror-receipt"
 	CommandOpsPreparePublicWitnessReceipt Command = "ops prepare-public-witness-receipt"
+	CommandOpsAttestHostWipe              Command = "ops attest-host-wipe"
 	CommandOpsExportSigning               Command = "ops export-signing"
 	CommandOpsImportSig                   Command = "ops import-signature"
 	CommandOpsVerify                      Command = "ops verify"
@@ -78,11 +79,13 @@ type InitOptions struct {
 	CoordinatorSigningKey string
 	OutDir                string
 	Mode                  string
+	AllowedBinaryPaths    []string
 }
 
 type RehearsalInitOptions struct {
-	CreatedAt string
-	OutDir    string
+	CreatedAt          string
+	OutDir             string
+	AllowedBinaryPaths []string
 }
 
 type ContributeOptions struct {
@@ -123,6 +126,16 @@ type ErasureOptions struct {
 	ParticipantSigningKey    string
 	CandidateDir             string
 	DestroyedAt              string
+}
+
+type HostWipeOptions struct {
+	CeremonyPath             string
+	CeremonySignaturePath    string
+	CoordinatorPublicKeyFile string
+	ParticipantID            string
+	ParticipantSigningKey    string
+	WipedAt                  string
+	OutDir                   string
 }
 
 type CloseOptions struct {
@@ -318,12 +331,13 @@ type InspectEnrollmentOptions struct {
 }
 
 type DefinitionInspection struct {
-	Schema             string                  `json:"schema"`
-	CeremonyID         string                  `json:"ceremony_id"`
-	Mode               string                  `json:"mode"`
-	Phase1Participants []string                `json:"phase1_participants"`
-	Phase2Participants []string                `json:"phase2_participants"`
-	R1CS               mpcceremony.ArtifactRef `json:"r1cs"`
+	Schema               string                  `json:"schema"`
+	CeremonyID           string                  `json:"ceremony_id"`
+	Mode                 string                  `json:"mode"`
+	Phase1Participants   []string                `json:"phase1_participants"`
+	Phase2Participants   []string                `json:"phase2_participants"`
+	HostWipeParticipants []string                `json:"host_wipe_participants,omitempty"`
+	R1CS                 mpcceremony.ArtifactRef `json:"r1cs"`
 }
 
 type ChainRecordInspection struct {

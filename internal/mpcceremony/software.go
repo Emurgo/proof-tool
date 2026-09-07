@@ -2,6 +2,7 @@ package mpcceremony
 
 import (
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -66,6 +68,143 @@ func RunningSoftwareBinding(proofToolVersion string) (SoftwareBinding, error) {
 // Rehearsal permits either clean or dirty builds and records the exact flag.
 func RunningSoftwareBindingForMode(proofToolVersion, mode string) (SoftwareBinding, error) {
 	return runningSoftwareBinding(proofToolVersion, mode, productionSoftwareSource())
+}
+
+// SoftwareBindingWithAllowedBinaryFiles authenticates additional
+// mpc-ceremony executables and returns one canonical, platform-keyed policy.
+// Every binary must have identical source and dependency metadata; exactly one
+// binary is permitted for each platform and architecture variant.
+func SoftwareBindingWithAllowedBinaryFiles(
+	primary SoftwareBinding,
+	proofToolVersion string,
+	mode string,
+	paths []string,
+) (SoftwareBinding, error) {
+	bindings := make([]SoftwareBinding, 0, len(paths))
+	for index, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			return SoftwareBinding{}, fmt.Errorf("open allowed binary %d %q: %w", index, path, err)
+		}
+		info, err := buildinfo.Read(file)
+		if err != nil {
+			file.Close()
+			return SoftwareBinding{}, fmt.Errorf("read allowed binary %d %q build info: %w", index, path, err)
+		}
+		if info.Path != "proof-tool/cmd/mpc-ceremony" {
+			file.Close()
+			return SoftwareBinding{}, fmt.Errorf(
+				"allowed binary %d %q main package %q, want %q",
+				index, path, info.Path, "proof-tool/cmd/mpc-ceremony",
+			)
+		}
+		fdPath, err := openFileDescriptorPath(file)
+		if err != nil {
+			file.Close()
+			return SoftwareBinding{}, fmt.Errorf("allowed binary %d %q: %w", index, path, err)
+		}
+		source := runningSoftwareSource{
+			executable:     func() (string, error) { return fdPath, nil },
+			readBuildInfo:  func() (*debug.BuildInfo, bool) { return info, true },
+			runtimeVersion: func() string { return info.GoVersion },
+		}
+		binding, bindingErr := runningSoftwareBinding(proofToolVersion, mode, source)
+		closeErr := file.Close()
+		if bindingErr != nil {
+			return SoftwareBinding{}, fmt.Errorf("authenticate allowed binary %d %q: %w", index, path, bindingErr)
+		}
+		if closeErr != nil {
+			return SoftwareBinding{}, fmt.Errorf("close allowed binary %d %q: %w", index, path, closeErr)
+		}
+		if err := requireCommonSoftwareIdentity(primary, binding); err != nil {
+			return SoftwareBinding{}, fmt.Errorf("allowed binary %d %q: %w", index, path, err)
+		}
+		bindings = append(bindings, binding)
+	}
+	return softwareBindingWithAllowedBindings(primary, bindings)
+}
+
+func softwareBindingWithAllowedBindings(
+	primary SoftwareBinding,
+	additional []SoftwareBinding,
+) (SoftwareBinding, error) {
+	if err := primary.Validate(); err != nil {
+		return SoftwareBinding{}, fmt.Errorf("primary software binding: %w", err)
+	}
+	for index, binding := range additional {
+		if err := binding.Validate(); err != nil {
+			return SoftwareBinding{}, fmt.Errorf("allowed software binding %d: %w", index, err)
+		}
+		if err := requireCommonSoftwareIdentity(primary, binding); err != nil {
+			return SoftwareBinding{}, fmt.Errorf("allowed software binding %d: %w", index, err)
+		}
+	}
+	binaries := primary.AllowedBinaries()
+	for _, binding := range additional {
+		binaries = append(binaries, binding.primaryBinary())
+	}
+	sort.Slice(binaries, func(i, j int) bool {
+		return binaries[i].platformKey() < binaries[j].platformKey()
+	})
+	for index := 1; index < len(binaries); index++ {
+		if binaries[index-1].platformKey() == binaries[index].platformKey() {
+			return SoftwareBinding{}, fmt.Errorf(
+				"multiple allowed binaries target platform %s",
+				binaries[index].platformKey(),
+			)
+		}
+	}
+	result := primary
+	result.GoOS = binaries[0].GoOS
+	result.GoArch = binaries[0].GoArch
+	result.GoAMD64 = binaries[0].GoAMD64
+	result.GoARM64 = binaries[0].GoARM64
+	result.ToolBinary = binaries[0].ToolBinary
+	result.Binaries = binaries
+	if err := result.Validate(); err != nil {
+		return SoftwareBinding{}, fmt.Errorf("allowed software policy: %w", err)
+	}
+	return result, nil
+}
+
+func openFileDescriptorPath(file *os.File) (string, error) {
+	switch runtime.GOOS {
+	case "linux":
+		return "/proc/self/fd/" + strconv.FormatUint(uint64(file.Fd()), 10), nil
+	case "darwin":
+		return "/dev/fd/" + strconv.FormatUint(uint64(file.Fd()), 10), nil
+	default:
+		return "", fmt.Errorf("secure allowed-binary inspection is unsupported on %s", runtime.GOOS)
+	}
+}
+
+func requireCommonSoftwareIdentity(expected, actual SoftwareBinding) error {
+	switch {
+	case expected.ProofToolVersion != actual.ProofToolVersion:
+		return softwareMismatch("proof_tool_version", expected.ProofToolVersion, actual.ProofToolVersion)
+	case expected.GnarkVersion != actual.GnarkVersion:
+		return softwareMismatch("gnark_version", expected.GnarkVersion, actual.GnarkVersion)
+	case expected.GnarkCryptoVersion != actual.GnarkCryptoVersion:
+		return softwareMismatch("gnark_crypto_version", expected.GnarkCryptoVersion, actual.GnarkCryptoVersion)
+	case expected.DrandVersion != actual.DrandVersion:
+		return softwareMismatch("drand_version", expected.DrandVersion, actual.DrandVersion)
+	case expected.GoVersion != actual.GoVersion:
+		return softwareMismatch("go_version", expected.GoVersion, actual.GoVersion)
+	case expected.Compiler != actual.Compiler:
+		return softwareMismatch("compiler", expected.Compiler, actual.Compiler)
+	case expected.BuildMode != actual.BuildMode:
+		return softwareMismatch("build_mode", expected.BuildMode, actual.BuildMode)
+	case expected.CGOEnabled != actual.CGOEnabled:
+		return softwareMismatch("cgo_enabled", expected.CGOEnabled, actual.CGOEnabled)
+	case expected.TrimPath != actual.TrimPath:
+		return softwareMismatch("trimpath", expected.TrimPath, actual.TrimPath)
+	case expected.SourceCommit != actual.SourceCommit:
+		return softwareMismatch("source_commit", expected.SourceCommit, actual.SourceCommit)
+	case expected.SourceDirty != actual.SourceDirty:
+		return softwareMismatch("source_dirty", expected.SourceDirty, actual.SourceDirty)
+	default:
+		return nil
+	}
 }
 
 // VerifyRunningSoftware fails unless every field in expected describes the
@@ -132,8 +271,15 @@ func runningSoftwareBinding(
 		return SoftwareBinding{}, err
 	}
 	goAMD64 := ""
-	if goArch == ProductionGOARCH {
+	if goArch == "amd64" {
 		goAMD64, err = uniqueBuildSetting(buildInfo, "GOAMD64")
+		if err != nil {
+			return SoftwareBinding{}, err
+		}
+	}
+	goARM64 := ""
+	if goArch == "arm64" {
+		goARM64, err = uniqueBuildSetting(buildInfo, "GOARM64")
 		if err != nil {
 			return SoftwareBinding{}, err
 		}
@@ -160,6 +306,7 @@ func runningSoftwareBinding(
 			goOS,
 			goArch,
 			goAMD64,
+			goARM64,
 			compiler,
 			buildMode,
 			cgoEnabled,
@@ -253,6 +400,7 @@ func runningSoftwareBinding(
 		GoOS:               goOS,
 		GoArch:             goArch,
 		GoAMD64:            goAMD64,
+		GoARM64:            goARM64,
 		Compiler:           compiler,
 		BuildMode:          buildMode,
 		CGOEnabled:         cgoEnabled,
@@ -261,6 +409,7 @@ func runningSoftwareBinding(
 		SourceDirty:        sourceDirty,
 		ToolBinary:         toolBinary,
 	}
+	binding.Binaries = []SoftwareBinary{binding.primaryBinary()}
 	if err := binding.Validate(); err != nil {
 		return SoftwareBinding{}, fmt.Errorf("derived software binding: %w", err)
 	}
@@ -289,48 +438,19 @@ func verifyRunningSoftware(
 	if err != nil {
 		return fmt.Errorf("derive running software binding: %w", err)
 	}
-	switch {
-	case expected.ProofToolVersion != actual.ProofToolVersion:
-		return softwareMismatch("proof_tool_version", expected.ProofToolVersion, actual.ProofToolVersion)
-	case expected.GnarkVersion != actual.GnarkVersion:
-		return softwareMismatch("gnark_version", expected.GnarkVersion, actual.GnarkVersion)
-	case expected.GnarkCryptoVersion != actual.GnarkCryptoVersion:
-		return softwareMismatch("gnark_crypto_version", expected.GnarkCryptoVersion, actual.GnarkCryptoVersion)
-	case expected.DrandVersion != actual.DrandVersion:
-		return softwareMismatch("drand_version", expected.DrandVersion, actual.DrandVersion)
-	case expected.GoVersion != actual.GoVersion:
-		return softwareMismatch("go_version", expected.GoVersion, actual.GoVersion)
-	case expected.GoOS != actual.GoOS:
-		return softwareMismatch("goos", expected.GoOS, actual.GoOS)
-	case expected.GoArch != actual.GoArch:
-		return softwareMismatch("goarch", expected.GoArch, actual.GoArch)
-	case expected.GoAMD64 != actual.GoAMD64:
-		return softwareMismatch("goamd64", expected.GoAMD64, actual.GoAMD64)
-	case expected.Compiler != actual.Compiler:
-		return softwareMismatch("compiler", expected.Compiler, actual.Compiler)
-	case expected.BuildMode != actual.BuildMode:
-		return softwareMismatch("build_mode", expected.BuildMode, actual.BuildMode)
-	case expected.CGOEnabled != actual.CGOEnabled:
-		return softwareMismatch("cgo_enabled", expected.CGOEnabled, actual.CGOEnabled)
-	case expected.TrimPath != actual.TrimPath:
-		return softwareMismatch("trimpath", expected.TrimPath, actual.TrimPath)
-	case expected.SourceCommit != actual.SourceCommit:
-		return softwareMismatch("source_commit", expected.SourceCommit, actual.SourceCommit)
-	case expected.SourceDirty != actual.SourceDirty:
-		return softwareMismatch("source_dirty", expected.SourceDirty, actual.SourceDirty)
-	case expected.ToolBinary.SHA256 != actual.ToolBinary.SHA256:
-		return softwareMismatch("tool_binary.sha256", expected.ToolBinary.SHA256, actual.ToolBinary.SHA256)
-	case expected.ToolBinary.Blake2b256 != actual.ToolBinary.Blake2b256:
-		return softwareMismatch(
-			"tool_binary.blake2b256",
-			expected.ToolBinary.Blake2b256,
-			actual.ToolBinary.Blake2b256,
-		)
-	case expected.ToolBinary.Size != actual.ToolBinary.Size:
-		return softwareMismatch("tool_binary.size", expected.ToolBinary.Size, actual.ToolBinary.Size)
-	default:
-		return nil
+	if err := requireCommonSoftwareIdentity(expected, actual); err != nil {
+		return err
 	}
+	actualBinary := actual.primaryBinary()
+	for _, allowed := range expected.AllowedBinaries() {
+		if allowed == actualBinary {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"running software binary %s (%s) is not in the signed allowlist",
+		actualBinary.platformKey(), actualBinary.ToolBinary.SHA256,
+	)
 }
 
 func digestRunningExecutable(path string) (Digest, error) {
@@ -435,6 +555,7 @@ func validateProductionBuildProfile(
 	goOS string,
 	goArch string,
 	goAMD64 string,
+	goARM64 string,
 	compiler string,
 	buildMode string,
 	cgoEnabled bool,
@@ -445,10 +566,16 @@ func validateProductionBuildProfile(
 		return softwareMismatch("go_version", ProductionGoVersion, goVersion)
 	case goOS != ProductionGOOS:
 		return softwareMismatch("goos", ProductionGOOS, goOS)
-	case goArch != ProductionGOARCH:
-		return softwareMismatch("goarch", ProductionGOARCH, goArch)
-	case goAMD64 != ProductionGOAMD64:
+	case goArch != "amd64" && goArch != "arm64":
+		return fmt.Errorf("running software goarch %q, want %q or %q", goArch, "amd64", "arm64")
+	case goArch == "amd64" && goAMD64 != ProductionGOAMD64:
 		return softwareMismatch("goamd64", ProductionGOAMD64, goAMD64)
+	case goArch == "amd64" && goARM64 != "":
+		return softwareMismatch("goarm64", "", goARM64)
+	case goArch == "arm64" && goARM64 != ProductionGOARM64:
+		return softwareMismatch("goarm64", ProductionGOARM64, goARM64)
+	case goArch == "arm64" && goAMD64 != "":
+		return softwareMismatch("goamd64", "", goAMD64)
 	case compiler != ProductionCompiler:
 		return softwareMismatch("compiler", ProductionCompiler, compiler)
 	case buildMode != ProductionBuildMode:

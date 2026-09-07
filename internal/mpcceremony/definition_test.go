@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestDefinitionV1RemainsAValidSingletonBinaryPolicy(t *testing.T) {
+	definition := adversarialDefinition(t)
+	definition.Schema = DefinitionSchemaV1
+	definition.Software.Binaries = nil
+	definition.CeremonyID = ""
+	id, err := ComputeCeremonyID(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition.CeremonyID = id
+	if err := definition.Validate(); err != nil {
+		t.Fatalf("legacy definition rejected: %v", err)
+	}
+	if got := definition.Software.AllowedBinaries(); len(got) != 1 || got[0] != definition.Software.primaryBinary() {
+		t.Fatalf("legacy binary policy = %#v", got)
+	}
+}
+
 func TestProductionDefinitionRequiresCanonicalDestinationCircuit(t *testing.T) {
 	tests := []struct {
 		name   string

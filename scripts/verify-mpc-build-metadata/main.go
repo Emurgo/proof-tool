@@ -41,6 +41,9 @@ var (
 	fingerprintPattern = regexp.MustCompile(`^([0-9A-F]{40}|[0-9A-F]{64})$`)
 	lowerSHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	rootFileNames      = []string{
+		"arm64-binary-manifest.json",
+		"arm64-go-build-info.txt",
+		"arm64-sbom.cdx.json",
 		"binary-manifest.json",
 		"build-mode.txt",
 		"checksums.blake2b256",
@@ -51,6 +54,7 @@ var (
 		"finalization-evidence-sbom.cdx.json",
 		"mpc-finalization-evidence",
 		"mpc-ceremony",
+		"mpc-ceremony-linux-arm64",
 		"sbom.cdx.json",
 		"signed-tag-object.txt",
 		"signed-tag-signer-fingerprint.txt",
@@ -155,6 +159,13 @@ func main() {
 	if err := verifyBinaryManifest(*dir, ceremonyManifest, "mpc-ceremony"); err != nil {
 		fatal(err)
 	}
+	arm64Manifest, err := readDigestManifest(filepath.Join(*dir, "arm64-binary-manifest.json"))
+	if err != nil {
+		fatal(err)
+	}
+	if err := verifyBinaryManifest(*dir, arm64Manifest, "mpc-ceremony-linux-arm64"); err != nil {
+		fatal(err)
+	}
 	evidenceManifest, err := readDigestManifest(
 		filepath.Join(*dir, "finalization-evidence-binary-manifest.json"),
 	)
@@ -164,13 +175,21 @@ func main() {
 	if err := verifyBinaryManifest(*dir, evidenceManifest, "mpc-finalization-evidence"); err != nil {
 		fatal(err)
 	}
-	if err := verifyBinaryChecksums(*dir, ceremonyManifest.Files[0], evidenceManifest.Files[0]); err != nil {
+	if err := verifyBinaryChecksums(
+		*dir,
+		ceremonyManifest.Files[0],
+		arm64Manifest.Files[0],
+		evidenceManifest.Files[0],
+	); err != nil {
 		fatal(err)
 	}
-	if err := verifyBuildInfo(filepath.Join(*dir, "mpc-ceremony"), *commit); err != nil {
+	if err := verifyBuildInfo(filepath.Join(*dir, "mpc-ceremony"), *commit, "amd64"); err != nil {
 		fatal(err)
 	}
-	if err := verifyBuildInfo(filepath.Join(*dir, "mpc-finalization-evidence"), *commit); err != nil {
+	if err := verifyBuildInfo(filepath.Join(*dir, "mpc-ceremony-linux-arm64"), *commit, "arm64"); err != nil {
+		fatal(err)
+	}
+	if err := verifyBuildInfo(filepath.Join(*dir, "mpc-finalization-evidence"), *commit, "amd64"); err != nil {
 		fatal(err)
 	}
 	if err := verifySBOM(
@@ -178,6 +197,14 @@ func main() {
 		*sourceRoot,
 		*commit,
 		"mpc-ceremony",
+	); err != nil {
+		fatal(err)
+	}
+	if err := verifySBOM(
+		filepath.Join(*dir, "arm64-sbom.cdx.json"),
+		*sourceRoot,
+		*commit,
+		"mpc-ceremony-linux-arm64",
 	); err != nil {
 		fatal(err)
 	}
@@ -294,7 +321,7 @@ func verifyBinaryChecksums(dir string, entries ...digestEntry) error {
 	return nil
 }
 
-func verifyBuildInfo(path, commit string) error {
+func verifyBuildInfo(path, commit, architecture string) error {
 	info, err := buildinfo.ReadFile(path)
 	if err != nil {
 		return err
@@ -307,12 +334,19 @@ func verifyBuildInfo(path, commit string) error {
 		"-compiler":    "gc",
 		"-trimpath":    "true",
 		"CGO_ENABLED":  "0",
-		"GOARCH":       "amd64",
+		"GOARCH":       architecture,
 		"GOOS":         "linux",
-		"GOAMD64":      "v1",
 		"vcs":          "git",
 		"vcs.modified": "false",
 		"vcs.revision": commit,
+	}
+	switch architecture {
+	case "amd64":
+		expected["GOAMD64"] = "v1"
+	case "arm64":
+		expected["GOARM64"] = "v8.0"
+	default:
+		return fmt.Errorf("unsupported binary architecture %q", architecture)
 	}
 	for key, value := range expected {
 		actual, err := uniqueSetting(info, key)

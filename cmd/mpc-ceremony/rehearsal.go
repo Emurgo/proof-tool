@@ -48,6 +48,7 @@ func executeRehearsalInit(options RehearsalInitOptions) (result CommandResult, e
 		CoordinatorSigningKey: filepath.Join(keyRoot, "coordinator.ed25519.private.hex"),
 		OutDir:                filepath.Join(options.OutDir, "public"),
 		Mode:                  mpcceremony.ModeRehearsal,
+		AllowedBinaryPaths:    options.AllowedBinaryPaths,
 	})
 	if err != nil {
 		return CommandResult{}, err
