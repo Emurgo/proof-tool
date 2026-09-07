@@ -38,7 +38,6 @@ const (
 
 var (
 	lowerCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	fingerprintPattern = regexp.MustCompile(`^([0-9A-F]{40}|[0-9A-F]{64})$`)
 	lowerSHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	rootFileNames      = []string{
 		"arm64-binary-manifest.json",
