@@ -132,19 +132,18 @@ func main() {
 	dir := flag.String("dir", "", "build package directory")
 	mode := flag.String("mode", "", "expected build mode")
 	commit := flag.String("commit", "", "expected lowercase 40-character source commit")
-	tag := flag.String("tag", "", "expected signed tag for production/candidate, or none")
-	fingerprint := flag.String("tag-signer-fingerprint", "", "expected uppercase tag signer fingerprint or none")
+	tag := flag.String("tag", "", "legacy expected tag or none; CI releases use none")
+	fingerprint := flag.String("tag-signer-fingerprint", "", "legacy tag fingerprint or none; CI releases use none")
 	sourceRoot := flag.String("source-root", "", "exact clean source checkout used to independently verify source and SBOM identities")
 	trustedBuildPublicKey := flag.String("trusted-build-public-key-file", "", "out-of-band trusted Ed25519 build public key or none")
 	flag.Parse()
-	if flag.NArg() != 0 || *dir == "" || (*mode != "production" && *mode != "candidate" && *mode != "rehearsal") ||
+	if flag.NArg() != 0 || *dir == "" || (*mode != "ci" && *mode != "rehearsal") ||
 		!lowerCommitPattern.MatchString(*commit) || *tag == "" || *fingerprint == "" ||
 		*sourceRoot == "" || *trustedBuildPublicKey == "" {
-		fatal(errors.New("usage: verify-mpc-build-metadata --dir DIR --mode production|candidate|rehearsal --commit COMMIT --tag TAG|none --tag-signer-fingerprint HEX|none --source-root DIR --trusted-build-public-key-file FILE|none"))
+		fatal(errors.New("usage: verify-mpc-build-metadata --dir DIR --mode ci|rehearsal --commit COMMIT --tag none --tag-signer-fingerprint none --source-root DIR --trusted-build-public-key-file none"))
 	}
-	if (*mode == "production" && *trustedBuildPublicKey == "none") ||
-		((*mode == "candidate" || *mode == "rehearsal") && *trustedBuildPublicKey != "none") {
-		fatal(errors.New("production requires an out-of-band trusted build public key; candidates and rehearsals require none"))
+	if *trustedBuildPublicKey != "none" {
+		fatal(errors.New("CI and rehearsal packages require no out-of-band build signing key"))
 	}
 	if err := verifyPlainIdentity(*dir, *mode, *commit, *tag, *fingerprint); err != nil {
 		fatal(err)
@@ -252,14 +251,14 @@ func verifyPlainIdentity(dir, mode, commit, tag, fingerprint string) error {
 	if err != nil {
 		return err
 	}
-	if mode == "production" || mode == "candidate" {
-		if tag == "none" || !fingerprintPattern.MatchString(fingerprint) ||
-			status != "verified" || !lowerCommitPattern.MatchString(tagObject) {
-			return fmt.Errorf("%s package does not contain an exact verified signed-tag identity", mode)
+	if mode == "ci" {
+		if tag != "none" || fingerprint != "none" || status != "not-used-ci-attested" || tagObject != "none" {
+			return errors.New("CI package contains inconsistent release identity")
 		}
-	} else if tag != "none" || fingerprint != "none" ||
-		status != "not-required-for-rehearsal" || tagObject != "none" {
-		return errors.New("untagged rehearsal package contains inconsistent signed-tag identity")
+	} else {
+		if tag != "none" || fingerprint != "none" || status != "not-required-for-rehearsal" || tagObject != "none" {
+			return errors.New("untagged rehearsal package contains inconsistent signed-tag identity")
+		}
 	}
 	epoch, err := readOneLine(filepath.Join(dir, "source-date-epoch.txt"))
 	if err != nil {
@@ -525,7 +524,7 @@ func verifyRootManifest(dir string, manifest digestManifest) error {
 func verifyBuildSignature(dir, mode, trustedPublicKeyPath string) error {
 	signaturePath := filepath.Join(dir, "build-package-manifest.sig")
 	bundledKeyPath := filepath.Join(dir, "build-package-manifest-public-key.hex")
-	if mode == "rehearsal" || mode == "candidate" {
+	if mode == "rehearsal" || mode == "ci" {
 		for _, path := range []string{signaturePath, bundledKeyPath} {
 			if _, err := os.Lstat(path); err == nil {
 				return fmt.Errorf("%s package unexpectedly contains %s", mode, filepath.Base(path))

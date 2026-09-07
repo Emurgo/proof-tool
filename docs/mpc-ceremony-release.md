@@ -16,28 +16,20 @@ following proof-tool properties:
   projection; and
 - absence of production signatures from rehearsal packages.
 
-Production release maintainers additionally follow
-`scripts/build-mpc-ceremony-release.sh` and
-`scripts/verify-mpc-ceremony-reproducible.sh` using the approved signed tag and
-offline build-signing key. Publish both `mpc-ceremony` (Linux/amd64) and
-`mpc-ceremony-linux-arm64`, together with their complete verification package,
-through proof-tool's release process.
+## Protected-main CI releases
 
-## CI candidate and offline approval
+The protected `main` branch is the release gate. Each merge to `main` runs
+`Publish MPC ceremony release`, builds the Linux/amd64 and Linux/arm64 package
+twice, compares them byte-for-byte, publishes the complete package as a GitHub
+Release, and attaches GitHub build provenance. The generated distribution tag
+(`mpc-ci-<commit>`) is a delivery label, not a source-approval signature.
 
-Pushing an `mpc-v*` tag runs `Publish MPC ceremony candidate`. It imports the
-checked-in public release-tag key, requires the tag to verify to the approved
-fingerprint, builds the AMD64 and ARM64 package twice, compares the two
-packages byte-for-byte, and uploads one package with GitHub build provenance.
-The artifact has `build-mode.txt = candidate`: it is explicitly **not** a
-production release and Relay must not consume it.
-
-The workflow never receives the offline Ed25519 build-signing key. A release
-maintainer independently rebuilds the same signed tag with `--mode production`
-on the approved offline Linux/AMD64 environment, verifies the candidate and
-the independent build, then publishes the signed production package and its
-SHA-256 values. This means a compromised CI credential can create an observable
-candidate, but cannot replace the production ceremony runtime.
+Coordinators verify that provenance against the expected repository, workflow,
+and exact `main` commit before using a package. There is no GPG source-tag
+signer, offline build-signing key, or manual release-signer step in this model.
+Protect `main` with required review, required CI checks, CODEOWNERS review for
+release workflows, no direct pushes, and no force pushes. GitHub Actions is
+therefore part of the trusted release boundary.
 
 New ceremony definitions use schema v2. The coordinator runs either released
 binary and passes the other with repeated `--allowed-binary FILE` flags during
