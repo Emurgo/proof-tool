@@ -2,20 +2,11 @@
 # Builds the participant-facing MPC ceremony binary from an exact clean Git
 # state and records the inputs needed for independent byte-for-byte rebuilds.
 #
-# Production usage requires a verified signed tag:
+# CI releases are built only from a clean protected-main commit. GitHub Actions
+# provenance, rather than a GPG tag or offline package signature, is the
+# release identity:
 #   scripts/build-mpc-ceremony-release.sh \
-#     --mode production \
-#     --signed-tag vX.Y.Z \
-#     --tag-signer-fingerprint "$APPROVED_GPG_FINGERPRINT" \
-#     --build-signing-key /offline/build-signing-key \
-#     --out-dir /fresh/output
-#
-# A CI candidate is bound to a verified source tag but deliberately has no
-# offline build-package signature. It is evidence for the offline releaser,
-# never a production release:
-#   scripts/build-mpc-ceremony-release.sh \
-#     --mode candidate --signed-tag vX.Y.Z \
-#     --tag-signer-fingerprint "$APPROVED_GPG_FINGERPRINT" \
+#     --mode ci \
 #     --out-dir /fresh/output
 #
 # Rehearsals deliberately record that no signed-tag gate was applied:
@@ -33,15 +24,12 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
 
 usage() {
-  echo "usage: $0 --mode production|candidate|rehearsal --out-dir DIR [--signed-tag TAG --tag-signer-fingerprint HEX] [--build-signing-key KEY]" >&2
+  echo "usage: $0 --mode ci|rehearsal --out-dir DIR" >&2
   exit 2
 }
 
 MODE=
 OUT_DIR=
-SIGNED_TAG=
-TAG_SIGNER_FINGERPRINT=
-BUILD_SIGNING_KEY=
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode)
@@ -54,68 +42,17 @@ while [[ $# -gt 0 ]]; do
       OUT_DIR=$2
       shift 2
       ;;
-    --signed-tag)
-      [[ $# -ge 2 ]] || usage
-      SIGNED_TAG=$2
-      shift 2
-      ;;
-    --tag-signer-fingerprint)
-      [[ $# -ge 2 ]] || usage
-      TAG_SIGNER_FINGERPRINT=$2
-      shift 2
-      ;;
-    --build-signing-key)
-      [[ $# -ge 2 ]] || usage
-      BUILD_SIGNING_KEY=$2
-      shift 2
-      ;;
     *)
       usage
       ;;
   esac
 done
 
-if [[ "$MODE" != "production" && "$MODE" != "candidate" && "$MODE" != "rehearsal" ]]; then
+if [[ "$MODE" != "ci" && "$MODE" != "rehearsal" ]]; then
   usage
 fi
 if [[ -z "$OUT_DIR" ]]; then
   usage
-fi
-if [[ "$MODE" == "production" &&
-  ( -z "$SIGNED_TAG" || -z "$TAG_SIGNER_FINGERPRINT" || -z "$BUILD_SIGNING_KEY" ) ]]; then
-  echo "FAIL: production builds require --signed-tag, --tag-signer-fingerprint, and --build-signing-key" >&2
-  exit 1
-fi
-if [[ "$MODE" == "candidate" &&
-  ( -z "$SIGNED_TAG" || -z "$TAG_SIGNER_FINGERPRINT" || -n "$BUILD_SIGNING_KEY" ) ]]; then
-  echo "FAIL: candidates require --signed-tag and --tag-signer-fingerprint, and must not use a build-signing key" >&2
-  exit 1
-fi
-if [[ "$MODE" == "rehearsal" &&
-  ( -n "$SIGNED_TAG" || -n "$TAG_SIGNER_FINGERPRINT" || -n "$BUILD_SIGNING_KEY" ) ]]; then
-  echo "FAIL: rehearsal builds must not supply production tag or build-signing identity" >&2
-  exit 1
-fi
-if [[ -n "$SIGNED_TAG" && -z "$TAG_SIGNER_FINGERPRINT" ]] ||
-  [[ -z "$SIGNED_TAG" && -n "$TAG_SIGNER_FINGERPRINT" ]]; then
-  echo "FAIL: --signed-tag and --tag-signer-fingerprint must be supplied together" >&2
-  exit 1
-fi
-if [[ -n "$TAG_SIGNER_FINGERPRINT" ]]; then
-  TAG_SIGNER_FINGERPRINT=${TAG_SIGNER_FINGERPRINT^^}
-  if [[ ! "$TAG_SIGNER_FINGERPRINT" =~ ^([0-9A-F]{40}|[0-9A-F]{64})$ ]]; then
-    echo "FAIL: tag signer fingerprint must be exactly 40 or 64 hexadecimal characters" >&2
-    exit 1
-  fi
-fi
-
-if [[ -n "$BUILD_SIGNING_KEY" ]]; then
-  BUILD_SIGNING_KEY_DIR=$(realpath -e -- "$(dirname -- "$BUILD_SIGNING_KEY")")
-  BUILD_SIGNING_KEY="$BUILD_SIGNING_KEY_DIR/$(basename -- "$BUILD_SIGNING_KEY")"
-  if [[ ! -f "$BUILD_SIGNING_KEY" || -L "$BUILD_SIGNING_KEY" ]]; then
-    echo "FAIL: build signing key must be a non-symlink regular file" >&2
-    exit 1
-  fi
 fi
 OUT_PARENT=$(realpath -e -- "$(dirname -- "$OUT_DIR")")
 OUT_DIR="$OUT_PARENT/$(basename -- "$OUT_DIR")"
@@ -137,35 +74,10 @@ if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-TAG_STATUS=not-required-for-rehearsal
+TAG_STATUS=not-used-ci-attested
 TAG_OBJECT=none
-if [[ -n "$SIGNED_TAG" ]]; then
-  if [[ "$SIGNED_TAG" == -* ]] || ! git check-ref-format "refs/tags/$SIGNED_TAG"; then
-    echo "FAIL: invalid signed tag name: $SIGNED_TAG" >&2
-    exit 1
-  fi
-  TAG_COMMIT=$(git rev-parse --verify "$SIGNED_TAG^{commit}")
-  if [[ "$TAG_COMMIT" != "$SOURCE_COMMIT" ]]; then
-    echo "FAIL: signed tag $SIGNED_TAG resolves to $TAG_COMMIT, not HEAD $SOURCE_COMMIT" >&2
-    exit 1
-  fi
-  TAG_OBJECT=$(git rev-parse --verify "$SIGNED_TAG^{tag}")
-  VERIFY_TAG_OUTPUT=
-  if ! VERIFY_TAG_OUTPUT=$(git verify-tag --raw "$SIGNED_TAG" 2>&1); then
-    printf '%s\n' "$VERIFY_TAG_OUTPUT" >&2
-    echo "FAIL: signed tag verification failed: $SIGNED_TAG" >&2
-    exit 1
-  fi
-  mapfile -t VALID_TAG_FINGERPRINTS < <(
-    printf '%s\n' "$VERIFY_TAG_OUTPUT" |
-      sed -n 's/^\[GNUPG:\] VALIDSIG \([0-9A-Fa-f]*\) .*/\U\1/p'
-  )
-  if [[ "${#VALID_TAG_FINGERPRINTS[@]}" -ne 1 ||
-    "${VALID_TAG_FINGERPRINTS[0]}" != "$TAG_SIGNER_FINGERPRINT" ]]; then
-    echo "FAIL: signed tag fingerprint does not match the approved fingerprint" >&2
-    exit 1
-  fi
-  TAG_STATUS=verified
+if [[ "$MODE" == "rehearsal" ]]; then
+  TAG_STATUS=not-required-for-rehearsal
 fi
 
 ACTIVE_GOROOT=$(env -u GOROOT \
@@ -514,10 +426,10 @@ env \
 printf '%s\n' "$SOURCE_COMMIT" >"$STAGING/source-commit.txt"
 printf '%s\n' "$SOURCE_DATE_EPOCH" >"$STAGING/source-date-epoch.txt"
 printf '%s\n' "$MODE" >"$STAGING/build-mode.txt"
-printf '%s\n' "${SIGNED_TAG:-none}" >"$STAGING/signed-tag.txt"
+printf '%s\n' none >"$STAGING/signed-tag.txt"
 printf '%s\n' "$TAG_STATUS" >"$STAGING/signed-tag-status.txt"
 printf '%s\n' "$TAG_OBJECT" >"$STAGING/signed-tag-object.txt"
-printf '%s\n' "${TAG_SIGNER_FINGERPRINT:-none}" >"$STAGING/signed-tag-signer-fingerprint.txt"
+printf '%s\n' none >"$STAGING/signed-tag-signer-fingerprint.txt"
 cat >"$STAGING/toolchain-checksums.sha256" <<EOF
 $EXPECTED_GO_SHA256  go
 $EXPECTED_COMPILE_SHA256  compile
@@ -572,26 +484,6 @@ env \
   cd "$STAGING"
   sha256sum build-package-manifest.json >build-package-manifest.sha256
 )
-if [[ -n "$BUILD_SIGNING_KEY" ]]; then
-  env \
-    -u GOROOT \
-    CGO_ENABLED=0 \
-    GOCACHE="$CANONICAL_ROOT/go-cache" \
-    GOENV=off \
-    GOEXPERIMENT= \
-    GOFIPS140=off \
-    GOTOOLCHAIN=local \
-    GOWORK=off \
-    GOOS=linux \
-    GOARCH=amd64 \
-    GOAMD64=v1 \
-    GOFLAGS=-mod=vendor \
-    "$GO_BIN" run ./scripts/sign-ed25519-file \
-      --input "$STAGING/build-package-manifest.json" \
-      --private-key "$BUILD_SIGNING_KEY" \
-      --signature-out "$STAGING/build-package-manifest.sig" \
-      --public-key-out "$STAGING/build-package-manifest-public-key.hex"
-fi
 
 chmod 0555 \
   "$STAGING/mpc-ceremony" \
@@ -603,11 +495,6 @@ chmod 0444 \
   "$STAGING"/build-package-manifest.sha256 \
   "$STAGING"/checksums.* \
   "$STAGING"/*-checksums.sha256
-if [[ -n "$BUILD_SIGNING_KEY" ]]; then
-  chmod 0444 \
-    "$STAGING"/build-package-manifest.sig \
-    "$STAGING"/build-package-manifest-public-key.hex
-fi
 touch -d "@$SOURCE_DATE_EPOCH" "$STAGING"/*
 env \
   -u GOROOT \

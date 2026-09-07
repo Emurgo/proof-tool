@@ -1,0 +1,90 @@
+name: Publish MPC ceremony release
+
+on:
+  push:
+    branches: [main]
+
+# Protected-main review is the release gate. CI publishes only immutable,
+# provenance-attested packages bound to github.sha; no GPG tag or offline key
+# participates in this release model.
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: mpc-ceremony-release-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Reproducible protected-main release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: mpc-ci-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Verify protected-main release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(go env GOVERSION)" = go1.26.6
+          test "$(go env GOHOSTOS)" = linux
+          test "$(go env GOHOSTARCH)" = amd64
+          test "$(sed -n 's/^module //p' go.mod)" = proof-tool
+
+      - name: Bootstrap patched vendor tree
+        run: bash scripts/bootstrap-vendor.sh
+
+      - name: Build two CI releases
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/mpc-release-a-parent"
+          mkdir "$RUNNER_TEMP/mpc-release-b-parent"
+          scripts/build-mpc-ceremony-release.sh --mode ci --out-dir "$RUNNER_TEMP/mpc-release-a-parent/release"
+          scripts/build-mpc-ceremony-release.sh --mode ci --out-dir "$RUNNER_TEMP/mpc-release-b-parent/release"
+
+      - name: Verify byte-for-byte reproducibility
+        shell: bash
+        run: |
+          scripts/verify-mpc-ceremony-reproducible.sh \
+            --mode ci --expected-commit "$GITHUB_SHA" --expected-tag none \
+            --tag-signer-fingerprint none --trusted-build-public-key-file none \
+            "$RUNNER_TEMP/mpc-release-a-parent/release" \
+            "$RUNNER_TEMP/mpc-release-b-parent/release"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mpc-ceremony-release-${{ github.sha }}
+          path: ${{ runner.temp }}/mpc-release-a-parent/release
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attest release package
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: ${{ runner.temp }}/mpc-release-a-parent/release
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          printf 'Protected-main CI release for commit `%s`. Verify GitHub build provenance before use.\n' "$GITHUB_SHA" > "$RUNNER_TEMP/release-notes.md"
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: MPC ceremony ${{ env.RELEASE_TAG }}
+          body_path: ${{ runner.temp }}/release-notes.md
+          files: ${{ runner.temp }}/mpc-release-a-parent/release/*
