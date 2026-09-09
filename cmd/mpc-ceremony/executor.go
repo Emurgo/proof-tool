@@ -61,10 +61,16 @@ func (workflowExecutor) Execute(ctx context.Context, invocation Invocation) (Com
 		return executeClose(mpcceremony.Phase2, invocation.Options.(CloseOptions))
 	case CommandPhase2Beacon:
 		return executeBeacon(mpcceremony.Phase2, invocation.Options.(BeaconOptions))
+	case CommandRehearsalEvidence:
+		return executeRehearsalEvidence(invocation.Options.(RehearsalEvidenceOptions))
+	case CommandOpsPrepareCustody:
+		return executeCustody(invocation.Options.(CustodyOptions))
 	case CommandFinalizePrepare:
 		return executePrepareFinalization(invocation.Options.(PrepareFinalizationOptions))
 	case CommandFinalizeComplete:
 		return executeFinalize(invocation.Options.(FinalizeOptions))
+	case CommandReplay:
+		return executeReplay(invocation.Options.(AuditOptions))
 	case CommandAudit:
 		return executeAudit(invocation.Options.(AuditOptions))
 	case CommandReleaseSign:
@@ -562,6 +568,26 @@ func executePrepareFinalization(options PrepareFinalizationOptions) (CommandResu
 	}, nil
 }
 
+func executeReplay(options AuditOptions) (CommandResult, error) {
+	trust := trustPaths(options.CeremonyPath, options.CeremonySignaturePath, options.CoordinatorPublicKeyFile)
+	if err := verifyRunningTrust(trust); err != nil {
+		return CommandResult{}, err
+	}
+	paths, err := replayPaths(trust, options.Replay)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	circuit, err := compileCircuitForCeremony(trust)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	id, err := mpcceremony.ReplayCandidate(paths, circuit, options.CandidateBundleDir)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	return CommandResult{CeremonyID: id, Summary: "independently replayed both phases and reproduced final parameters; no audit signed"}, nil
+}
+
 func executeAudit(options AuditOptions) (CommandResult, error) {
 	trust := trustPaths(
 		options.CeremonyPath,
@@ -684,8 +710,9 @@ func executeReleaseVerify(options ReleaseVerifyOptions) (CommandResult, error) {
 		return CommandResult{}, err
 	}
 	return CommandResult{
-		CeremonyID: result.Transcript.CeremonyID,
-		Summary:    "verified the release signature, bundled audits, native keys, Cardano export, and ceremony coherence",
+		CeremonyID:            result.Transcript.CeremonyID,
+		ReleaseManifestSHA256: result.ManifestSHA256,
+		Summary:               "verified the release signature, bundled audits, native keys, Cardano export, and ceremony coherence",
 		Outputs: map[string]string{
 			"keys_dir": options.KeysDir,
 		},

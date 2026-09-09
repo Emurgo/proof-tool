@@ -48,6 +48,8 @@ Commands:
   phase2 beacon        Record signed post-closure beacon evidence
   finalize prepare     Replay both phases and publish preliminary final keys
   finalize complete    Verify external public evidence and create candidate
+  finalize rehearsal-evidence  Generate a real proof for the tiny rehearsal circuit
+  replay               Publicly replay both phases without signing
   audit                Independently replay and audit ceremony artifacts
   release sign         Sign an audited release manifest
   release verify       Verify release and ceremony coherence
@@ -353,6 +355,14 @@ Records the distinct Phase 2 post-closure beacon evidence used by finalize.
   mpc-ceremony finalize prepare [FLAGS]
   mpc-ceremony finalize complete [FLAGS]
 `,
+	"finalize rehearsal-evidence": `Usage:
+  mpc-ceremony finalize rehearsal-evidence --keys-dir DIR \
+    --coordinator-public-key-file FILE --ceremony-id ID --out FILE
+
+Authenticates preliminary keys and checks the exact supported tiny circuit.
+Generates and verifies a real proof using public golden inputs. Never accepts
+wallet material, overwrites evidence, or produces a production ownership proof.
+`,
 	"finalize prepare": `Usage:
   mpc-ceremony finalize prepare --ceremony FILE --ceremony-signature FILE \
     --coordinator-public-key-file KEY [REPLAY EVIDENCE FLAGS] \
@@ -376,6 +386,16 @@ Replays both phases again, verifies the canonical external public proof
 against the replayed final VK, and creates the coordinator-signed but
 unsigned-for-release candidate. It accepts only the public evidence artifact.
 Release signing remains a separate post-audit step.
+`,
+	"replay": `Usage:
+  mpc-ceremony replay --ceremony FILE --ceremony-signature FILE \
+    --coordinator-public-key-file KEY [REPLAY EVIDENCE FLAGS] \
+    --candidate-bundle DIR
+` + replayFlagsHelp + `
+Independently compiles the signed circuit and replays both phases, checking
+randomness, final native keys, Cardano export and public proof evidence.
+Requires no private key and writes no signed audit. Release signatures and
+production approval are checked separately with release verify and decision verify.
 `,
 	"audit": `Usage:
   mpc-ceremony audit --ceremony FILE \
@@ -510,19 +530,46 @@ owner's public identity and disclosure. Internal role indices are derived;
 external witness/mirror indices are assigned through the coordination channel.
 No private key is read. Share the entire public export with the disclosure.
 `,
+	"ops prepare-handoff": `Usage:
+  mpc-ceremony ops prepare-handoff --ceremony FILE --ceremony-signature FILE \
+    --coordinator-public-key-file KEY --transcript-root DIR \
+    --chain FILE --chain-signature FILE --participant-id ID \
+    --direction outbound|return [--candidate-dir DIR] --out-dir FRESH_DIR
+
+Derives the next turn from the signed current chain. Outbound names its input;
+return hashes the completed candidate including cleanup acknowledgment. Creates
+an unsigned canonical packet with the actual current time and one-hour expiry.
+Review and sign before sending. Preserve an existing packet instead of overwriting
+it. A late-created handoff cannot replace a missing earlier custody event.
+`,
+	"ops prepare-receipt": `Usage:
+  mpc-ceremony ops prepare-receipt --ceremony FILE --ceremony-signature FILE \
+    --coordinator-public-key-file KEY --transcript-root RECEIVED_FILES_ROOT \
+    --handoff FILE --handoff-signature FILE --sender-public-key-file KEY \
+    --out-dir FRESH_DIR
+
+First receive the exact named public files into their logical paths under the
+received-files root. Verifies the sender signature and every received file digest,
+then prepares a receipt at the actual current time. Review and sign it as the
+named recipient. No network transfer or physical-air-gap claim is made.
+`,
 	"ops sign": `Usage:
   mpc-ceremony ops sign --record-type TYPE --record CANONICAL_FILE \
     --ceremony FILE --ceremony-signature FILE --coordinator-public-key-file KEY \
     --signing-key OWN_KEY_FILE --reviewed [--reviewed-sha256 HEX] --out FRESH_SIGNATURE_JSON
 
-Owner signing for enrollment, public-witness, mirror-receipt or evidence-bundle.
+Offline owner signing for enrollment, public-witness, mirror-receipt, handoff,
+receipt, beacon-evidence and evidence-bundle records.
 Bundle signing additionally requires --evidence-root DIR and verifies every
-referenced operational record before reading the coordinator's signing key.
+referenced operational record before reading the coordinator’s signing key.
 Authenticates the ceremony, canonical record and owner key. Review the exact
 record and associated disclosure/observations before --reviewed. This signs
 your claim; it does not independently observe publication or prove independence.
 Enrollment signing requires its matching disclosure tree beside the record.
-The optional reviewed hash binds signing to bytes previously shown by a helper.
+The reviewed hash binds signing to bytes previously shown by a helper. It is
+required for handoff, receipt, beacon-evidence and evidence-bundle signing.
+Run ops verify afterwards; receipts require --related-record and bundles require
+--evidence-root. A signature alone does not verify a complete ceremony.
 `,
 	"ops prepare-bundle": `Usage:
   mpc-ceremony ops prepare-bundle --ceremony FILE --ceremony-signature FILE \

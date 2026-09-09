@@ -84,6 +84,10 @@ func parseInvocation(args []string) (Invocation, error) {
 		return parsePhase2(invocation, rest[1:])
 	case "finalize":
 		return parseFinalize(invocation, rest[1:])
+	case "replay":
+		options, err := parseReplay(rest[1:])
+		invocation.Command, invocation.Options = CommandReplay, options
+		return invocation, wrapCommandError(err, "replay")
 	case "audit":
 		options, err := parseAudit(rest[1:])
 		invocation.Command, invocation.Options = CommandAudit, options
@@ -432,6 +436,10 @@ func parseOps(invocation Invocation, args []string) (Invocation, error) {
 		return Invocation{}, &helpRequest{topic: append([]string{"ops"}, args[1:]...)}
 	}
 	switch args[0] {
+	case "prepare-handoff", "prepare-receipt":
+		options, err := parseCustody(args[1:], args[0] == "prepare-receipt")
+		invocation.Command, invocation.Options = CommandOpsPrepareCustody, options
+		return invocation, wrapCommandError(err, "ops", args[0])
 	case "prepare-bundle":
 		options, err := parseOpsPrepareBundle(args[1:])
 		invocation.Command, invocation.Options = CommandOpsPrepareBundle, options
@@ -988,6 +996,10 @@ func parseFinalize(invocation Invocation, args []string) (Invocation, error) {
 		return Invocation{}, &usageError{message: "missing finalize command", topic: []string{"finalize"}}
 	}
 	switch args[0] {
+	case "rehearsal-evidence":
+		options, err := parseRehearsalEvidence(args[1:])
+		invocation.Command, invocation.Options = CommandRehearsalEvidence, options
+		return invocation, wrapCommandError(err, "finalize", "rehearsal-evidence")
 	case "prepare":
 		options, err := parsePrepareFinalization(args[1:])
 		invocation.Command, invocation.Options = CommandFinalizePrepare, options
@@ -1046,6 +1058,21 @@ func parseCompleteFinalization(args []string) (FinalizeOptions, error) {
 		value("--finalized-at", options.FinalizedAt),
 		pathValue("--out-dir", options.OutDir),
 	); err != nil {
+		return options, err
+	}
+	return options, validateReplayOptions(options.Replay)
+}
+
+func parseReplay(args []string) (AuditOptions, error) {
+	var options AuditOptions
+	fs := commandFlagSet("replay")
+	addCeremonyTrustFlags(fs, &options.CeremonyPath, &options.CeremonySignaturePath, &options.CoordinatorPublicKeyFile)
+	addReplayFlags(fs, &options.Replay)
+	fs.StringVar(&options.CandidateBundleDir, "candidate-bundle", "", "signed candidate or released key directory")
+	if err := parseFlags(fs, args); err != nil {
+		return options, err
+	}
+	if err := requireValues(pathValue("--ceremony", options.CeremonyPath), pathValue("--ceremony-signature", options.CeremonySignaturePath), pathValue("--coordinator-public-key-file", options.CoordinatorPublicKeyFile), pathValue("--candidate-bundle", options.CandidateBundleDir)); err != nil {
 		return options, err
 	}
 	return options, validateReplayOptions(options.Replay)

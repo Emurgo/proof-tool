@@ -31,9 +31,12 @@ const (
 	CommandPhase2Verify                   Command = "phase2 verify"
 	CommandPhase2Close                    Command = "phase2 close"
 	CommandPhase2Beacon                   Command = "phase2 beacon"
+	CommandOpsPrepareCustody              Command = "ops prepare-custody"
 	CommandFinalizePrepare                Command = "finalize prepare"
+	CommandRehearsalEvidence              Command = "finalize rehearsal-evidence"
 	CommandFinalizeComplete               Command = "finalize complete"
 	CommandAudit                          Command = "audit"
+	CommandReplay                         Command = "replay"
 	CommandReleaseSign                    Command = "release sign"
 	CommandReleaseVerify                  Command = "release verify"
 	CommandOpsPrepareMirrorReceipt        Command = "ops prepare-mirror-receipt"
@@ -416,6 +419,7 @@ type ReplayOptions struct {
 }
 
 type CommandResult struct {
+	ReleaseManifestSHA256      string                 `json:"release_manifest_sha256,omitempty"`
 	Schema                     string                 `json:"schema"`
 	OK                         bool                   `json:"ok"`
 	Command                    Command                `json:"command"`
