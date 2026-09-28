@@ -2,7 +2,7 @@
   "schema": "proof-tool-proof-assets-chunk-manifest-v1",
   "release": "proof-assets-ownership-destination-v3-ceremony-8471106-r1",
   "profile": "mainnet-single-destination",
-  "generated_at": "2026-09-28T01:23:40Z",
+  "generated_at": "2026-09-28T01:30:28Z",
   "signature_key_id": "ed25519:cb3e3ce424b630ab2e0046bd1d7860f7c6ef3acf38988f09ab0c9a934a6db54c",
   "coherence": {
     "key_manifest_sha256": "sha256:f8fbd655fafc371f7c431af93f7d76856998af9007e660c27856c1d5f0e34a02",
@@ -26,7 +26,7 @@
     "deployment_source_commit": "693b6ada6f640619355029642d22e3f05cb8588e"
   },
   "transport": {
-    "base_url": "https://proof-assets.reclaim-proof.com/proof-assets/ceremony-v3-8471106-6eff-r1/",
+    "base_url": "https://secondfi.io/refund/proof-assets/",
     "content_encoding": "identity",
     "requires_https": true,
     "supports_range": true
