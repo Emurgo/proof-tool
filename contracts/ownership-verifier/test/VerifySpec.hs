@@ -1190,7 +1190,7 @@ main = do
             StatementV2.v2VerifierKeyParametersMatch destinationVk (flipFirstBit verifierKeyHash) @?= False
         , testCase "reclaim-scripts-export global-v2 rejects a same-width verifier-key hash mismatch" $ do
             verifierKeyHex <- filter isHexDigit <$> readFile "testdata/ownership-destination-vk.hex"
-            let canonicalHash = "b953a5133901bee9832254df08b76f28a8f5e5aba58683815623f6e1ec660fa7"
+            let canonicalHash = "6b17843af8d76dc0c63fcd0904537ac2c61d15d44f8f8785f8481c8f0eca05da"
                 wrongHash = (if head canonicalHash == '0' then '1' else '0') : tail canonicalHash
                 canonicalHashBytes = bytesToBuiltin (decodeHex canonicalHash)
                 wrongHashBytes = bytesToBuiltin (decodeHex wrongHash)
