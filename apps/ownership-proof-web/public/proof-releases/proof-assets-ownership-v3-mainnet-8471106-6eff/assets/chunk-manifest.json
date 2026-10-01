@@ -31,7 +31,7 @@
     "deployment_source_commit": "963360f6e4cf71046d40be50b1b923fc7f22c991"
   },
   "transport": {
-    "base_url": "https://proof-assets.reclaim-proof.com/proof-assets/mainnet-8471106-6eff/",
+    "base_url": "https://proof-assets-882248517350-us-east-2-an.s3.us-east-2.amazonaws.com/mainnet-8471106-6eff/",
     "content_encoding": "identity",
     "requires_https": true,
     "supports_range": true
